@@ -3,6 +3,7 @@ import { KGCore } from '../../KGCore';
 import { KGMidiNote } from '../../midi/KGMidiNote';
 import { KGMidiControllerEvent } from '../../midi/KGMidiControllerEvent';
 import { KGMidiPitchBend } from '../../midi/KGMidiPitchBend';
+import { KGMidiPressureEvent, type MidiPressureKind } from '../../midi/KGMidiPressureEvent';
 import { KGMidiRegion } from '../../region/KGMidiRegion';
 import { KGTrack } from '../../track/KGTrack';
 import { generateUniqueId } from '../../../util/miscUtil';
@@ -31,18 +32,30 @@ export interface ControllerEventCreationData {
   controllerEventId?: string;
 }
 
+export interface PressureEventCreationData {
+  regionId: string;
+  beat: number;
+  value: number;
+  kind: MidiPressureKind;
+  note?: number | null;
+  pressureEventId?: string;
+}
+
 export class CreateMidiEventsCommand extends KGCommand {
   private noteCreationData: NoteCreationData[];
   private pitchBendCreationData: PitchBendCreationData[];
   private controllerEventCreationData: ControllerEventCreationData[];
+  private pressureEventCreationData: PressureEventCreationData[];
   private createdNotes: Array<{ note: KGMidiNote; regionId: string }> = [];
   private createdPitchBends: Array<{ pitchBend: KGMidiPitchBend; regionId: string }> = [];
   private createdControllerEvents: Array<{ controller: number; controllerEvent: KGMidiControllerEvent; regionId: string }> = [];
+  private createdPressureEvents: Array<{ pressureEvent: KGMidiPressureEvent; regionId: string }> = [];
 
   constructor(
     noteCreationData: NoteCreationData[],
     pitchBendCreationData: PitchBendCreationData[] = [],
-    controllerEventCreationData: ControllerEventCreationData[] = []
+    controllerEventCreationData: ControllerEventCreationData[] = [],
+    pressureEventCreationData: PressureEventCreationData[] = []
   ) {
     super();
     this.noteCreationData = noteCreationData.map(data => ({
@@ -57,6 +70,10 @@ export class CreateMidiEventsCommand extends KGCommand {
       ...data,
       controllerEventId: data.controllerEventId || generateUniqueId('KGMidiControllerEvent'),
     }));
+    this.pressureEventCreationData = pressureEventCreationData.map(data => ({
+      ...data,
+      pressureEventId: data.pressureEventId || generateUniqueId('KGMidiPressureEvent'),
+    }));
   }
 
   execute(): void {
@@ -64,6 +81,7 @@ export class CreateMidiEventsCommand extends KGCommand {
     this.createdNotes = [];
     this.createdPitchBends = [];
     this.createdControllerEvents = [];
+    this.createdPressureEvents = [];
 
     for (const noteData of this.noteCreationData) {
       const targetRegion = this.resolveRegion(tracks, noteData.regionId);
@@ -103,6 +121,22 @@ export class CreateMidiEventsCommand extends KGCommand {
         regionId: controllerEventData.regionId,
       });
     }
+
+    for (const pressureEventData of this.pressureEventCreationData) {
+      const targetRegion = this.resolveRegion(tracks, pressureEventData.regionId);
+      const newPressureEvent = new KGMidiPressureEvent(
+        pressureEventData.pressureEventId!,
+        pressureEventData.beat,
+        pressureEventData.value,
+        pressureEventData.kind,
+        pressureEventData.note ?? null,
+      );
+      targetRegion.addPressureEvent(newPressureEvent);
+      this.createdPressureEvents.push({
+        pressureEvent: newPressureEvent,
+        regionId: pressureEventData.regionId,
+      });
+    }
   }
 
   undo(): void {
@@ -137,12 +171,24 @@ export class CreateMidiEventsCommand extends KGCommand {
         core.removeSelectedItem(selectedControllerEvent);
       }
     }
+
+    for (const data of this.createdPressureEvents) {
+      const region = this.resolveRegion(tracks, data.regionId);
+      region.removePressureEvent(data.pressureEvent.getId());
+      const selectedPressureEvent = core.getSelectedItems().find(
+        item => item instanceof KGMidiPressureEvent && item.getId() === data.pressureEvent.getId()
+      );
+      if (selectedPressureEvent) {
+        core.removeSelectedItem(selectedPressureEvent);
+      }
+    }
   }
 
   getDescription(): string {
     const noteCount = this.noteCreationData.length;
     const pitchBendCount = this.pitchBendCreationData.length;
     const controllerEventCount = this.controllerEventCreationData.length;
+    const pressureEventCount = this.pressureEventCreationData.length;
 
     const parts: string[] = [];
     if (noteCount > 0) {
@@ -153,6 +199,9 @@ export class CreateMidiEventsCommand extends KGCommand {
     }
     if (controllerEventCount > 0) {
       parts.push(`${controllerEventCount} controller event${controllerEventCount === 1 ? '' : 's'}`);
+    }
+    if (pressureEventCount > 0) {
+      parts.push(`${pressureEventCount} aftertouch event${pressureEventCount === 1 ? '' : 's'}`);
     }
 
     if (parts.length === 0) {
@@ -176,6 +225,10 @@ export class CreateMidiEventsCommand extends KGCommand {
 
   public getCreatedControllerEvents(): Array<{ controller: number; controllerEvent: KGMidiControllerEvent; regionId: string }> {
     return this.createdControllerEvents;
+  }
+
+  public getCreatedPressureEvents(): Array<{ pressureEvent: KGMidiPressureEvent; regionId: string }> {
+    return this.createdPressureEvents;
   }
 
   public getCreatedNoteIds(): string[] {
