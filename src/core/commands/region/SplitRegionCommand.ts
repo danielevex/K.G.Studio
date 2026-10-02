@@ -6,6 +6,7 @@ import { KGAudioRegion } from '../../region/KGAudioRegion';
 import { KGMidiControllerEvent } from '../../midi/KGMidiControllerEvent';
 import { KGMidiNote } from '../../midi/KGMidiNote';
 import { KGMidiPitchBend } from '../../midi/KGMidiPitchBend';
+import { KGMidiPressureEvent } from '../../midi/KGMidiPressureEvent';
 import { KGTrack } from '../../track/KGTrack';
 import { generateUniqueId } from '../../../util/miscUtil';
 import { useProjectStore } from '../../../stores/projectStore';
@@ -148,6 +149,20 @@ export class SplitRegionCommand extends KGCommand {
             event.getValue()
           ));
         }
+      }
+
+      for (const pressureEvent of originalRegion.getPressureEvents()) {
+        const target = pressureEvent.getBeat() < splitOffsetBeats ? region1 : region2;
+        const beat = pressureEvent.getBeat() < splitOffsetBeats
+          ? pressureEvent.getBeat()
+          : pressureEvent.getBeat() - splitOffsetBeats;
+        target.addPressureEvent(new KGMidiPressureEvent(
+          generateUniqueId('KGMidiPressureEvent'),
+          beat,
+          pressureEvent.getValue(),
+          pressureEvent.getKind(),
+          pressureEvent.getNote()
+        ));
       }
 
       this.region1 = region1;
