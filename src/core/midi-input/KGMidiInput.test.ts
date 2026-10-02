@@ -14,8 +14,11 @@ const { getStateMock, audioInterfaceMock } = vi.hoisted(() => ({
     triggerLiveMidiNoteAttack: vi.fn(),
     releaseLiveMidiNote: vi.fn(),
     setLiveMidiPitchBend: vi.fn(),
+    setLiveMidiPitchBendRange: vi.fn(),
+    setLiveMidiVibrato: vi.fn(),
     setLiveMidiExpression: vi.fn(),
     setLiveMidiSustain: vi.fn(),
+    releaseAllLiveMidi: vi.fn(),
   },
 }));
 
@@ -255,6 +258,93 @@ describe('KGMidiInput pitch bend', () => {
 
     midiInput.clearRetrospectiveBuffer();
     expect(midiInput.getRetrospectiveMessages()).toEqual([]);
+  });
+
+  it('routes a mono guitar lead through semantic hammer-on and pull-off transitions', () => {
+    const midiInput = KGMidiInput.instance() as unknown as {
+      handleMIDIMessage: (...args: [TestMidiEvent, string?]) => void;
+      applyPerformanceProfile: (profileId: string) => void;
+      getGuitarPerformanceSnapshot: () => { activeNote: number | null; lastTransition: string | null } | null;
+    };
+
+    midiInput.applyPerformanceProfile('guitar.lead.standard');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x90, 60, 100]) }, 'keyboard-a');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x90, 62, 90]) }, 'keyboard-a');
+
+    expect(audioInterfaceMock.triggerLiveMidiNoteAttack).toHaveBeenNthCalledWith(1, '1', 60, 100);
+    expect(audioInterfaceMock.releaseLiveMidiNote).toHaveBeenCalledWith('1', 60);
+    expect(audioInterfaceMock.triggerLiveMidiNoteAttack).toHaveBeenNthCalledWith(2, '1', 62, 90);
+    expect(midiInput.getGuitarPerformanceSnapshot()).toEqual(expect.objectContaining({
+      activeNote: 62,
+      lastTransition: 'hammer-on',
+    }));
+
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x80, 62, 0]) }, 'keyboard-a');
+
+    expect(audioInterfaceMock.releaseLiveMidiNote).toHaveBeenCalledWith('1', 62);
+    expect(audioInterfaceMock.triggerLiveMidiNoteAttack).toHaveBeenNthCalledWith(3, '1', 60, 100);
+    expect(midiInput.getGuitarPerformanceSnapshot()).toEqual(expect.objectContaining({
+      activeNote: 60,
+      lastTransition: 'pull-off',
+    }));
+  });
+
+  it('maps guitar bend range and vibrato controls without changing raw recording callbacks', () => {
+    const midiInput = KGMidiInput.instance() as unknown as {
+      handleMIDIMessage: (...args: [TestMidiEvent, string?]) => void;
+      applyPerformanceProfile: (profileId: string) => void;
+      setRecordingCallbacks: (
+        onNoteOn: null,
+        onNoteOff: null,
+        onPitchBend: (value: number) => void,
+        onControlChange: (controller: number, value: number) => void,
+      ) => void;
+    };
+    const recordedBend = vi.fn();
+    const recordedCc = vi.fn();
+
+    midiInput.applyPerformanceProfile('guitar.lead.wide-bend');
+    midiInput.setRecordingCallbacks(null, null, recordedBend, recordedCc);
+
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0xe0, 0x7f, 0x7f]) }, 'keyboard-a');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0xb0, 1, 100]) }, 'keyboard-a');
+
+    expect(audioInterfaceMock.setLiveMidiPitchBendRange).toHaveBeenCalledWith('1', 4);
+    expect(audioInterfaceMock.setLiveMidiPitchBend).toHaveBeenCalled();
+    expect(audioInterfaceMock.setLiveMidiVibrato).toHaveBeenCalledWith(
+      '1',
+      expect.any(Number),
+      0.4,
+      5.5,
+    );
+    expect(recordedBend).toHaveBeenCalledWith(16383);
+    expect(recordedCc).toHaveBeenCalledWith(1, 100);
+  });
+
+  it('treats guitar keyswitches as articulations and excludes them from retrospective note capture', () => {
+    const midiInput = KGMidiInput.instance() as unknown as {
+      handleMIDIMessage: (...args: [TestMidiEvent, string?]) => void;
+      applyPerformanceProfile: (profileId: string) => void;
+      getGuitarPerformanceSnapshot: () => { activeArticulationId: string } | null;
+      getRetrospectiveMessages: () => Array<{ kind: string; note?: number }>;
+      setRecordingCallbacks: (
+        onNoteOn: (pitch: number, velocity: number) => void,
+        onNoteOff: (pitch: number) => void,
+      ) => void;
+    };
+    const noteOn = vi.fn();
+    const noteOff = vi.fn();
+
+    midiInput.applyPerformanceProfile('guitar.lead.standard');
+    midiInput.setRecordingCallbacks(noteOn, noteOff);
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x90, 25, 100]) }, 'keyboard-a');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x80, 25, 0]) }, 'keyboard-a');
+
+    expect(midiInput.getGuitarPerformanceSnapshot()?.activeArticulationId).toBe('palm-mute');
+    expect(audioInterfaceMock.triggerLiveMidiNoteAttack).not.toHaveBeenCalled();
+    expect(noteOn).not.toHaveBeenCalled();
+    expect(noteOff).not.toHaveBeenCalled();
+    expect(midiInput.getRetrospectiveMessages().some(message => message.note === 25)).toBe(false);
   });
 
 });
