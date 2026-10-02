@@ -333,6 +333,8 @@ These contracts should be independent from UI framework and plugin vendor.
 
 LP1 deliberately keeps performance mappings transient. Persisted bend/vibrato/articulation mappings belong to LP2/LP3.
 
+Validation for LP1 is covered by the repository CI workflow (TypeScript/Vite build plus the Vitest suite).
+
 ### LP2 — Recording & expressive lanes
 
 - arm/record live MIDI;
