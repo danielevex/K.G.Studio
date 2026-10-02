@@ -123,6 +123,19 @@ describe('GuitarPerformanceEngine', () => {
     expect(guitar.getSnapshot().activeArticulationId).toBe('palm-mute');
   });
 
+  it('keeps latched articulation state while reporting legato gestures separately', () => {
+    const guitar = engine();
+
+    guitar.process(msg('note-on', 0, { note: 25, velocity: 100 }));
+    guitar.process(msg('note-on', 10, { note: 60, velocity: 100 }));
+    guitar.process(msg('note-on', 20, { note: 62, velocity: 90 }));
+
+    expect(guitar.getSnapshot()).toEqual(expect.objectContaining({
+      activeArticulationId: 'palm-mute',
+      lastTransition: 'hammer-on',
+    }));
+  });
+
   it('supports poly mode without forcing monophonic transitions', () => {
     const profile = getGuitarPerformanceProfile('guitar.lead.standard');
     if (!profile) throw new Error('Missing test profile');
