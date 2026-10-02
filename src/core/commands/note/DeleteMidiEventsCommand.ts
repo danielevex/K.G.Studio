@@ -3,6 +3,7 @@ import { KGCore } from '../../KGCore';
 import { KGMidiControllerEvent } from '../../midi/KGMidiControllerEvent';
 import { KGMidiNote } from '../../midi/KGMidiNote';
 import { KGMidiPitchBend } from '../../midi/KGMidiPitchBend';
+import { KGMidiPressureEvent } from '../../midi/KGMidiPressureEvent';
 import { KGMidiRegion } from '../../region/KGMidiRegion';
 
 interface DeletedNoteData {
@@ -24,19 +25,33 @@ interface DeletedControllerEventData {
   originalIndex: number;
 }
 
+interface DeletedPressureEventData {
+  pressureEvent: KGMidiPressureEvent;
+  regionId: string;
+  originalIndex: number;
+}
+
 export class DeleteMidiEventsCommand extends KGCommand {
   private noteIds: string[];
   private pitchBendIds: string[];
   private controllerEventIds: string[];
+  private pressureEventIds: string[];
   private deletedNoteData: DeletedNoteData[] = [];
   private deletedPitchBendData: DeletedPitchBendData[] = [];
   private deletedControllerEventData: DeletedControllerEventData[] = [];
+  private deletedPressureEventData: DeletedPressureEventData[] = [];
 
-  constructor(noteIds: string[] = [], pitchBendIds: string[] = [], controllerEventIds: string[] = []) {
+  constructor(
+    noteIds: string[] = [],
+    pitchBendIds: string[] = [],
+    controllerEventIds: string[] = [],
+    pressureEventIds: string[] = []
+  ) {
     super();
     this.noteIds = noteIds;
     this.pitchBendIds = pitchBendIds;
     this.controllerEventIds = controllerEventIds;
+    this.pressureEventIds = pressureEventIds;
   }
 
   execute(): void {
@@ -46,6 +61,7 @@ export class DeleteMidiEventsCommand extends KGCommand {
     this.deletedNoteData = [];
     this.deletedPitchBendData = [];
     this.deletedControllerEventData = [];
+    this.deletedPressureEventData = [];
 
     for (const noteId of this.noteIds) {
       for (const track of tracks) {
@@ -105,13 +121,37 @@ export class DeleteMidiEventsCommand extends KGCommand {
       }
     }
 
-    if (this.deletedNoteData.length === 0 && this.deletedPitchBendData.length === 0 && this.deletedControllerEventData.length === 0) {
+    for (const pressureEventId of this.pressureEventIds) {
+      for (const track of tracks) {
+        for (const region of track.getRegions()) {
+          if (!(region instanceof KGMidiRegion)) continue;
+
+          const pressureIndex = region.getPressureEvents().findIndex(event => event.getId() === pressureEventId);
+          if (pressureIndex === -1) continue;
+
+          this.deletedPressureEventData.push({
+            pressureEvent: region.getPressureEvents()[pressureIndex],
+            regionId: region.getId(),
+            originalIndex: pressureIndex,
+          });
+          break;
+        }
+      }
+    }
+
+    if (
+      this.deletedNoteData.length === 0
+      && this.deletedPitchBendData.length === 0
+      && this.deletedControllerEventData.length === 0
+      && this.deletedPressureEventData.length === 0
+    ) {
       throw new Error('No MIDI events found to delete');
     }
 
     this.deletedNoteData.sort((a, b) => b.originalIndex - a.originalIndex);
     this.deletedPitchBendData.sort((a, b) => b.originalIndex - a.originalIndex);
     this.deletedControllerEventData.sort((a, b) => b.originalIndex - a.originalIndex);
+    this.deletedPressureEventData.sort((a, b) => b.originalIndex - a.originalIndex);
 
     for (const data of this.deletedNoteData) {
       const region = this.resolveRegion(tracks, data.regionId);
@@ -144,6 +184,18 @@ export class DeleteMidiEventsCommand extends KGCommand {
       );
       if (selectedControllerEvent) {
         core.removeSelectedItem(selectedControllerEvent);
+      }
+    }
+
+    for (const data of this.deletedPressureEventData) {
+      const region = this.resolveRegion(tracks, data.regionId);
+      region.removePressureEvent(data.pressureEvent.getId());
+
+      const selectedPressureEvent = core.getSelectedItems().find(
+        item => item instanceof KGMidiPressureEvent && item.getId() === data.pressureEvent.getId()
+      );
+      if (selectedPressureEvent) {
+        core.removeSelectedItem(selectedPressureEvent);
       }
     }
   }
@@ -183,12 +235,24 @@ export class DeleteMidiEventsCommand extends KGCommand {
         region.addControllerEvent(data.controller, data.controllerEvent);
       }
     }
+
+    for (const data of [...this.deletedPressureEventData].sort((a, b) => a.originalIndex - b.originalIndex)) {
+      const region = this.resolveRegion(tracks, data.regionId);
+      const pressureEvents = region.getPressureEvents();
+      if (data.originalIndex >= 0 && data.originalIndex <= pressureEvents.length) {
+        pressureEvents.splice(data.originalIndex, 0, data.pressureEvent);
+        region.setPressureEvents(pressureEvents);
+      } else {
+        region.addPressureEvent(data.pressureEvent);
+      }
+    }
   }
 
   getDescription(): string {
     const noteCount = this.noteIds.length;
     const pitchBendCount = this.pitchBendIds.length;
     const controllerEventCount = this.controllerEventIds.length;
+    const pressureEventCount = this.pressureEventIds.length;
     const parts: string[] = [];
     if (noteCount > 0) {
       parts.push(`${noteCount} note${noteCount === 1 ? '' : 's'}`);
@@ -198,6 +262,9 @@ export class DeleteMidiEventsCommand extends KGCommand {
     }
     if (controllerEventCount > 0) {
       parts.push(`${controllerEventCount} controller event${controllerEventCount === 1 ? '' : 's'}`);
+    }
+    if (pressureEventCount > 0) {
+      parts.push(`${pressureEventCount} aftertouch event${pressureEventCount === 1 ? '' : 's'}`);
     }
 
     if (parts.length === 0) {
