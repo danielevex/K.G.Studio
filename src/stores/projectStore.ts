@@ -10,6 +10,7 @@ import { KGAudioInterface } from '../core/audio-interface/KGAudioInterface';
 import { KGPianoRollState } from '../core/state/KGPianoRollState';
 import { KGMidiNote } from '../core/midi/KGMidiNote';
 import { KGMidiControllerEvent } from '../core/midi/KGMidiControllerEvent';
+import { KGMidiPressureEvent, type MidiPressureKind } from '../core/midi/KGMidiPressureEvent';
 import { KGRegion } from '../core/region/KGRegion';
 import { AddTrackCommand, AddAudioTrackCommand, DuplicateTrackCommand, type DuplicateTrackOptions, RemoveTrackCommand, ReorderTracksCommand, UpdateTrackCommand, type TrackUpdateProperties, PasteRegionsCommand, PasteNotesCommand, ChangeProjectPropertyCommand, ImportAudioCommand, UpdateRegionCommand, type RegionUpdateProperties } from '../core/commands';
 import { KGAudioTrack } from '../core/track/KGAudioTrack';
@@ -28,7 +29,8 @@ import * as Tone from 'tone';
 import { KGMidiInput } from '../core/midi-input/KGMidiInput';
 import { KGMidiRegion } from '../core/region/KGMidiRegion';
 import { KGMidiPitchBend } from '../core/midi/KGMidiPitchBend';
-import { CreateMidiEventsCommand, type NoteCreationData, type PitchBendCreationData, type ControllerEventCreationData } from '../core/commands/note/CreateMidiEventsCommand';
+import { CreateMidiEventsCommand, type NoteCreationData, type PitchBendCreationData, type ControllerEventCreationData, type PressureEventCreationData } from '../core/commands/note/CreateMidiEventsCommand';
+import { buildRetrospectiveMidiCapture } from '../core/midi-input/retrospectiveMidi';
 import { MIDI_PITCH_BEND_CENTER } from '../util/midiUtil';
 import { KGTrackAutomationPoint, type TrackAutomationType } from '../core/track/KGTrackAutomationPoint';
 import type { AudioRecordingPeak } from '../core/audio-interface/KGAudioRecorder';
@@ -137,6 +139,7 @@ interface ProjectState {
   selectedNoteIds: string[];
   selectedPitchBendIds: string[];
   selectedControllerEventIds: string[];
+  selectedPressureEventIds: string[];
   selectedTrackAutomationPointIds: string[];
   selectedRegionIds: string[];
   selectedTrackId: string | null;
@@ -188,6 +191,7 @@ interface ProjectState {
   recordingNotes: Array<{ pitch: number; startBeat: number; endBeat: number; velocity: number }>;
   recordingPitchBends: Array<{ beat: number; value: number }>;
   recordingControllerEventsByType: Array<Array<{ beat: number; value: number }>>;
+  recordingPressureEvents: Array<{ kind: MidiPressureKind; note: number | null; beat: number; value: number }>;
   recordingOriginalPlayhead: number;
   recordingStartBeatAbsolute: number;
   recordingCommitStartBeatAbsolute: number;
@@ -302,6 +306,7 @@ interface ProjectState {
   // Recording actions
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
+  captureLastPerformance: (durationSeconds?: number) => Promise<number>;
 
   // Initialization actions
   initializeFromConfig: () => Promise<void>;
@@ -312,6 +317,7 @@ let _recordingActiveNotes: Map<number, { startBeat: number; velocity: number }> 
 let _recordingRegionStartBeat: number = 0;
 let _lastRecordedPitchBendValue: number | null = null;
 let _lastRecordedControllerValues: Map<number, number> = new Map();
+let _lastRecordedPressureValues: Map<string, number> = new Map();
 let _audioRecordingStartTimeoutId: number | null = null;
 let _audioRecordingForcedStopBeatAbsolute: number | null = null;
 let _audioRecordingHasStarted: boolean = false;
@@ -467,6 +473,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     const controllerEventIds = selectedItems
       .filter(item => item instanceof KGMidiControllerEvent)
       .map(item => item.getId());
+    const pressureEventIds = selectedItems
+      .filter(item => item instanceof KGMidiPressureEvent)
+      .map(item => item.getId());
     const trackAutomationPointIds = selectedItems
       .filter(item => item instanceof KGTrackAutomationPoint)
       .map(item => item.getId());
@@ -478,6 +487,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       selectedNoteIds: noteIds,
       selectedPitchBendIds: pitchBendIds,
       selectedControllerEventIds: controllerEventIds,
+      selectedPressureEventIds: pressureEventIds,
       selectedTrackAutomationPointIds: trackAutomationPointIds,
       selectedRegionIds: regionIds
     });
@@ -550,6 +560,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     selectedNoteIds: [],
     selectedPitchBendIds: [],
     selectedControllerEventIds: [],
+    selectedPressureEventIds: [],
     selectedTrackAutomationPointIds: [],
     selectedRegionIds: [],
     selectedTrackId: initialSelectedTrackId,
@@ -606,6 +617,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     recordingNotes: [],
     recordingPitchBends: [],
     recordingControllerEventsByType: createEmptyRecordedControllerBuckets(),
+    recordingPressureEvents: [],
     recordingOriginalPlayhead: 0,
     recordingStartBeatAbsolute: 0,
     recordingCommitStartBeatAbsolute: 0,
@@ -1101,6 +1113,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           recordingNotes: [],
           recordingPitchBends: [],
           recordingControllerEventsByType: createEmptyRecordedControllerBuckets(),
+          recordingPressureEvents: [],
           recordingOriginalPlayhead: 0,
           recordingStartBeatAbsolute: 0,
           recordingCommitStartBeatAbsolute: 0,
@@ -1228,6 +1241,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           recordingNotes: [],
           recordingPitchBends: [],
           recordingControllerEventsByType: createEmptyRecordedControllerBuckets(),
+          recordingPressureEvents: [],
           recordingOriginalPlayhead: playheadPosition,
           recordingStartBeatAbsolute,
           recordingCommitStartBeatAbsolute,
@@ -1301,6 +1315,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       _recordingActiveNotes = new Map();
       _lastRecordedPitchBendValue = null;
       _lastRecordedControllerValues = new Map();
+      _lastRecordedPressureValues = new Map();
 
       const projectLooping = project.getIsLooping();
       const [loopStartBar] = project.getLoopingRange();
@@ -1315,6 +1330,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         recordingNotes: [],
         recordingPitchBends: [],
         recordingControllerEventsByType: createEmptyRecordedControllerBuckets(),
+        recordingPressureEvents: [],
         recordingTargetRegionId: activeRegionId,
         recordingTargetTrackId: null,
         recordingTargetTrackIndex: null,
@@ -1378,6 +1394,23 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             nextRecordingControllerEventsByType[controller].push({ beat, value });
             return { recordingControllerEventsByType: nextRecordingControllerEventsByType };
           });
+        },
+        (kind: MidiPressureKind, note: number | null, value: number) => {
+          const pressureKey = `${kind}:${note ?? 'channel'}`;
+          if (_lastRecordedPressureValues.get(pressureKey) === value) {
+            return;
+          }
+
+          _lastRecordedPressureValues.set(pressureKey, value);
+          const beat = buildCorrectedBeat();
+          set(state => ({
+            recordingPressureEvents: [...state.recordingPressureEvents, {
+              kind,
+              note,
+              beat,
+              value,
+            }],
+          }));
         }
       );
 
@@ -1399,6 +1432,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         recordingNotes,
         recordingPitchBends,
         recordingControllerEventsByType,
+        recordingPressureEvents,
         recordingTargetRegionId,
         recordingTargetTrackId,
         recordingTargetTrackIndex,
@@ -1489,6 +1523,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           recordingNotes: [],
           recordingPitchBends: [],
           recordingControllerEventsByType: createEmptyRecordedControllerBuckets(),
+          recordingPressureEvents: [],
           recordingStartBeatAbsolute: 0,
           recordingCommitStartBeatAbsolute: 0,
           recordingAudioPreviewPeaks: [],
@@ -1502,6 +1537,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const finalNotes = [...recordingNotes];
       const finalPitchBends = [...recordingPitchBends];
       const finalControllerEventsByType = recordingControllerEventsByType.map(events => [...events]);
+      const finalPressureEvents = [...recordingPressureEvents];
       const bpm = get().bpm;
       const playbackDelaySec = (ConfigManager.instance().get('audio.playback_delay') as number) ?? 0.2;
       const recordingOffsetSec = (ConfigManager.instance().get('audio.recording_offset') as number) ?? 0;
@@ -1534,10 +1570,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         _lastRecordedControllerValues.set(64, 0);
       }
 
-      KGMidiInput.instance().setRecordingCallbacks(null, null, null, null);
+      KGMidiInput.instance().setRecordingCallbacks(null, null, null, null, null);
 
       const hasControllerEvents = finalControllerEventsByType.some(events => events.length > 0);
-      if ((finalNotes.length > 0 || finalPitchBends.length > 0 || hasControllerEvents) && recordingTargetRegionId) {
+      if ((finalNotes.length > 0 || finalPitchBends.length > 0 || hasControllerEvents || finalPressureEvents.length > 0) && recordingTargetRegionId) {
         const noteData: NoteCreationData[] = finalNotes.map(n => ({
           regionId: recordingTargetRegionId,
           startBeat: n.startBeat,
@@ -1558,7 +1594,14 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             value: event.value,
           }))
         ));
-        const command = new CreateMidiEventsCommand(noteData, pitchBendData, controllerEventData);
+        const pressureEventData: PressureEventCreationData[] = finalPressureEvents.map(event => ({
+          regionId: recordingTargetRegionId,
+          kind: event.kind,
+          note: event.note,
+          beat: event.beat,
+          value: event.value,
+        }));
+        const command = new CreateMidiEventsCommand(noteData, pitchBendData, controllerEventData, pressureEventData);
         KGCore.instance().executeCommand(command);
         refreshProjectState();
       }
@@ -1572,6 +1615,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         recordingNotes: [],
         recordingPitchBends: [],
         recordingControllerEventsByType: createEmptyRecordedControllerBuckets(),
+        recordingPressureEvents: [],
         recordingTargetRegionId: null,
         recordingTargetTrackId: null,
         recordingTargetTrackIndex: null,
@@ -1583,6 +1627,79 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       });
       _lastRecordedPitchBendValue = null;
       _lastRecordedControllerValues = new Map();
+      _lastRecordedPressureValues = new Map();
+    },
+
+    captureLastPerformance: async (durationSeconds: number = 30) => {
+      const { activeRegionId, playheadPosition, bpm, isPlaying } = get();
+      if (!activeRegionId) {
+        get().setStatus('Open a MIDI region before capturing the last performance.');
+        return 0;
+      }
+
+      const project = KGCore.instance().getCurrentProject();
+      let targetRegion: KGMidiRegion | null = null;
+      for (const track of project.getTracks()) {
+        const candidate = track.getRegions().find(region => region.getId() === activeRegionId);
+        if (candidate instanceof KGMidiRegion) {
+          targetRegion = candidate;
+          break;
+        }
+      }
+
+      if (!targetRegion) {
+        get().setStatus('The active region is not a MIDI region.');
+        return 0;
+      }
+
+      const midiInput = KGMidiInput.instance();
+      const messages = midiInput.getRetrospectiveMessages(durationSeconds);
+      if (messages.length === 0) {
+        get().setStatus('No recent MIDI performance is available to capture.');
+        return 0;
+      }
+
+      const anchorBeatAbsolute = isPlaying
+        ? KGAudioInterface.instance().getTransportPosition()
+        : playheadPosition;
+      const capture = buildRetrospectiveMidiCapture(
+        messages,
+        anchorBeatAbsolute,
+        targetRegion.getStartFromBeat(),
+        targetRegion.getLength(),
+        bpm,
+      );
+
+      const noteData: NoteCreationData[] = capture.notes.map(note => ({
+        regionId: activeRegionId,
+        ...note,
+      }));
+      const pitchBendData: PitchBendCreationData[] = capture.pitchBends.map(event => ({
+        regionId: activeRegionId,
+        ...event,
+      }));
+      const controllerEventData: ControllerEventCreationData[] = capture.controllers.map(event => ({
+        regionId: activeRegionId,
+        ...event,
+      }));
+      const pressureEventData: PressureEventCreationData[] = capture.pressureEvents.map(event => ({
+        regionId: activeRegionId,
+        ...event,
+      }));
+
+      const eventCount = noteData.length + pitchBendData.length + controllerEventData.length + pressureEventData.length;
+      if (eventCount === 0) {
+        get().setStatus('Recent MIDI activity did not contain capturable events inside this region.');
+        return 0;
+      }
+
+      KGCore.instance().executeCommand(
+        new CreateMidiEventsCommand(noteData, pitchBendData, controllerEventData, pressureEventData)
+      );
+      get().refreshProjectState();
+      get().bumpAutomationRedrawVersion();
+      get().setStatus(`Captured ${eventCount} MIDI event${eventCount === 1 ? '' : 's'} from the last ${durationSeconds}s.`);
+      return eventCount;
     },
 
     toggleLoop: () => {

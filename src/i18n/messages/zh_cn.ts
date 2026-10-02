@@ -351,6 +351,8 @@ export const zhCnMessages: TranslationMessages = {
   'pianoRoll.automationType.cc7': 'CC7',
   'pianoRoll.automationType.cc11': 'CC11',
   'pianoRoll.automationType.cc64': 'CC64',
+  'pianoRoll.automationType.channelAftertouch': '通道触后',
+  'pianoRoll.automationType.polyAftertouch': '复音触后',
   'pianoRoll.mode': '调式',
   'pianoRoll.modeOption.ionian': '伊奥尼亚',
   'pianoRoll.modeOption.dorian': '多利亚',

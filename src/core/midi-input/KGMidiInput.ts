@@ -56,12 +56,15 @@ export class KGMidiInput {
   private liveMidiMessageListeners: Set<LiveMidiMessageListener> = new Set();
   private midiLearnListener: ((result: MidiLearnResult) => void) | null = null;
   private midiLearnArmed = false;
+  private retrospectiveBuffer: LiveMidiMessage[] = [];
+  private retrospectiveDurationSeconds = 30;
 
   // Recording callbacks
   private onRecordNoteOn: ((pitch: number, velocity: number) => void) | null = null;
   private onRecordNoteOff: ((pitch: number) => void) | null = null;
   private onRecordPitchBend: ((value: number) => void) | null = null;
   private onRecordControlChange: ((controller: number, value: number) => void) | null = null;
+  private onRecordPressure: ((kind: 'channel' | 'poly', note: number | null, value: number) => void) | null = null;
   private liveNoteTrackOwnership: Map<number, string[]> = new Map();
   private sustainPolarityInverted: boolean | null = null;
   private liveNoteActivityListeners: LiveNoteActivityListener[] = [];
@@ -286,6 +289,7 @@ export class KGMidiInput {
       };
       this.emitLiveMidiMessage(message);
       this.resolveMidiLearn(message);
+      this.onRecordPressure?.('poly', data1, data2);
     }
     // Control Change: command = 0xB0 (176)
     else if (command === 0xb0) {
@@ -320,6 +324,7 @@ export class KGMidiInput {
       };
       this.emitLiveMidiMessage(message);
       this.resolveMidiLearn(message);
+      this.onRecordPressure?.('channel', null, data1);
     }
     // Pitch Bend: command = 0xE0 (224)
     else if (command === 0xe0) {
@@ -340,12 +345,29 @@ export class KGMidiInput {
   }
 
   private emitLiveMidiMessage(message: LiveMidiMessage): void {
+    this.retrospectiveBuffer.push(message);
+    this.pruneRetrospectiveBuffer(message.timestampMs);
+
     for (const listener of this.liveMidiMessageListeners) {
       try {
         listener(message);
       } catch {
         // Listener failures must never interrupt live MIDI processing.
       }
+    }
+  }
+
+  private pruneRetrospectiveBuffer(nowMs: number): void {
+    const cutoff = nowMs - (this.retrospectiveDurationSeconds * 1000);
+    let firstValidIndex = 0;
+    while (
+      firstValidIndex < this.retrospectiveBuffer.length
+      && this.retrospectiveBuffer[firstValidIndex].timestampMs < cutoff
+    ) {
+      firstValidIndex += 1;
+    }
+    if (firstValidIndex > 0) {
+      this.retrospectiveBuffer.splice(0, firstValidIndex);
     }
   }
 
@@ -594,6 +616,7 @@ export class KGMidiInput {
       this.channelFilter = null;
       this.midiLearnListener = null;
       this.midiLearnArmed = false;
+      this.retrospectiveBuffer = [];
       this.notifyStateChange();
 
       console.log("MIDI resources disposed successfully");
@@ -608,12 +631,14 @@ export class KGMidiInput {
     onNoteOn: ((pitch: number, velocity: number) => void) | null,
     onNoteOff: ((pitch: number) => void) | null,
     onPitchBend: ((value: number) => void) | null = null,
-    onControlChange: ((controller: number, value: number) => void) | null = null
+    onControlChange: ((controller: number, value: number) => void) | null = null,
+    onPressure: ((kind: 'channel' | 'poly', note: number | null, value: number) => void) | null = null
   ): void {
     this.onRecordNoteOn = onNoteOn;
     this.onRecordNoteOff = onNoteOff;
     this.onRecordPitchBend = onPitchBend;
     this.onRecordControlChange = onControlChange;
+    this.onRecordPressure = onPressure;
   }
 
   public addLiveNoteActivityListener(listener: LiveNoteActivityListener): void {
@@ -705,6 +730,41 @@ export class KGMidiInput {
 
   public getMidiLearnArmed(): boolean {
     return this.midiLearnArmed;
+  }
+
+  public setRetrospectiveDurationSeconds(durationSeconds: number): void {
+    this.retrospectiveDurationSeconds = Math.max(1, Math.min(120, Math.round(durationSeconds)));
+    const latestTimestamp = this.retrospectiveBuffer[this.retrospectiveBuffer.length - 1]?.timestampMs;
+    if (latestTimestamp !== undefined) {
+      this.pruneRetrospectiveBuffer(latestTimestamp);
+    }
+    this.notifyStateChange();
+  }
+
+  public getRetrospectiveDurationSeconds(): number {
+    return this.retrospectiveDurationSeconds;
+  }
+
+  public getRetrospectiveMessages(durationSeconds: number = this.retrospectiveDurationSeconds): LiveMidiMessage[] {
+    if (this.retrospectiveBuffer.length === 0) {
+      return [];
+    }
+
+    const safeDuration = Math.max(1, Math.min(this.retrospectiveDurationSeconds, durationSeconds));
+    const latestTimestamp = this.retrospectiveBuffer[this.retrospectiveBuffer.length - 1].timestampMs;
+    const cutoff = latestTimestamp - (safeDuration * 1000);
+    return this.retrospectiveBuffer
+      .filter(message => message.timestampMs >= cutoff)
+      .map(message => ({ ...message }));
+  }
+
+  public clearRetrospectiveBuffer(): void {
+    this.retrospectiveBuffer = [];
+    this.notifyStateChange();
+  }
+
+  public getRetrospectiveMessageCount(): number {
+    return this.retrospectiveBuffer.length;
   }
 
   public getStateVersion(): number {

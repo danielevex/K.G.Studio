@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { KGMidiNote } from '../../midi/KGMidiNote';
+import { KGMidiPressureEvent } from '../../midi/KGMidiPressureEvent';
 import { KGAudioRegion } from '../../region/KGAudioRegion';
 import { KGMidiRegion } from '../../region/KGMidiRegion';
 import { KGAudioTrack } from '../../track/KGAudioTrack';
@@ -74,6 +75,7 @@ describe('PasteRegionsCommand', () => {
     const midiRegion = new KGMidiRegion('midi', '1', 0, 'Melody', 2, 4);
     midiRegion.setColor('#123456');
     midiRegion.addNote(new KGMidiNote('note', 0.5, 1.5, 64, 99));
+    midiRegion.addPressureEvent(new KGMidiPressureEvent('pressure', 1, 77, 'poly', 64));
     const audioRegion = new KGAudioRegion(
       'audio',
       '2',
@@ -99,6 +101,10 @@ describe('PasteRegionsCommand', () => {
     expect(pastedMidi).toBeInstanceOf(KGMidiRegion);
     expect((pastedMidi as KGMidiRegion).getNotes()).toHaveLength(1);
     expect((pastedMidi as KGMidiRegion).getNotes()[0].getPitch()).toBe(64);
+    expect((pastedMidi as KGMidiRegion).getPressureEvents()).toHaveLength(1);
+    expect((pastedMidi as KGMidiRegion).getPressureEvents()[0].getKind()).toBe('poly');
+    expect((pastedMidi as KGMidiRegion).getPressureEvents()[0].getNote()).toBe(64);
+    expect((pastedMidi as KGMidiRegion).getPressureEvents()[0].getValue()).toBe(77);
     expect(pastedMidi.getColor()).toBe('#123456');
     expect(pastedAudio).toBeInstanceOf(KGAudioRegion);
     expect((pastedAudio as KGAudioRegion).getAudioFileId()).toBe('audio-file-id');

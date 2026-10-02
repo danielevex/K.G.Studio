@@ -14,6 +14,7 @@ import { CreateNotesCommand } from '../core/commands/note/CreateNotesCommand';
 import { DeleteMidiEventsCommand } from '../core/commands/note/DeleteMidiEventsCommand';
 import { KGMidiPitchBend } from '../core/midi/KGMidiPitchBend';
 import { KGMidiControllerEvent } from '../core/midi/KGMidiControllerEvent';
+import { KGMidiPressureEvent } from '../core/midi/KGMidiPressureEvent';
 import { getSnappedBeatPosition, getSnappedLength } from '../components/piano-roll/pianoRollSnap';
 import { useProjectStore } from '../stores/projectStore';
 
@@ -114,8 +115,17 @@ export const useNoteOperations = ({
       item instanceof KGMidiControllerEvent &&
       activeRegion.getAllControllerEventsFlattened().some(({ event }) => event.getId() === item.getId())
     ) as KGMidiControllerEvent[];
+    const selectedPressureEvents = selectedItems.filter(item =>
+      item instanceof KGMidiPressureEvent &&
+      activeRegion.getPressureEvents().some(event => event.getId() === item.getId())
+    ) as KGMidiPressureEvent[];
     
-    if (selectedNotes.length === 0 && selectedPitchBends.length === 0 && selectedControllerEvents.length === 0) {
+    if (
+      selectedNotes.length === 0
+      && selectedPitchBends.length === 0
+      && selectedControllerEvents.length === 0
+      && selectedPressureEvents.length === 0
+    ) {
       if (DEBUG_MODE.PIANO_ROLL) {
         console.log('No MIDI events selected for deletion');
       }
@@ -123,17 +133,18 @@ export const useNoteOperations = ({
     }
     
     if (DEBUG_MODE.PIANO_ROLL) {
-      console.log(`Deleting MIDI events: notes=${selectedNotes.length}, pitchBends=${selectedPitchBends.length}, controllers=${selectedControllerEvents.length}`);
+      console.log(`Deleting MIDI events: notes=${selectedNotes.length}, pitchBends=${selectedPitchBends.length}, controllers=${selectedControllerEvents.length}, aftertouch=${selectedPressureEvents.length}`);
     }
     
     const noteIds = selectedNotes.map(note => note.getId());
     const pitchBendIds = selectedPitchBends.map(pitchBend => pitchBend.getId());
     const controllerEventIds = selectedControllerEvents.map(controllerEvent => controllerEvent.getId());
-    const command = pitchBendIds.length > 0 || controllerEventIds.length > 0
-      ? new DeleteMidiEventsCommand(noteIds, pitchBendIds, controllerEventIds)
+    const pressureEventIds = selectedPressureEvents.map(pressureEvent => pressureEvent.getId());
+    const command = pitchBendIds.length > 0 || controllerEventIds.length > 0 || pressureEventIds.length > 0
+      ? new DeleteMidiEventsCommand(noteIds, pitchBendIds, controllerEventIds, pressureEventIds)
       : new DeleteNotesCommand(noteIds);
     core.executeCommand(command);
-    if (pitchBendIds.length > 0 || controllerEventIds.length > 0) {
+    if (pitchBendIds.length > 0 || controllerEventIds.length > 0 || pressureEventIds.length > 0) {
       useProjectStore.getState().bumpAutomationRedrawVersion();
     }
     

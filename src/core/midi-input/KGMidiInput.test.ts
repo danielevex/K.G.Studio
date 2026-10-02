@@ -213,4 +213,48 @@ describe('KGMidiInput pitch bend', () => {
     }));
   });
 
+  it('records channel and poly aftertouch through the expressive recording callback', () => {
+    const midiInput = KGMidiInput.instance() as unknown as {
+      handleMIDIMessage: (...args: [TestMidiEvent, string?]) => void;
+      setRecordingCallbacks: (
+        onNoteOn: null,
+        onNoteOff: null,
+        onPitchBend: null,
+        onControlChange: null,
+        onPressure: (kind: 'channel' | 'poly', note: number | null, value: number) => void,
+      ) => void;
+    };
+    const pressure = vi.fn();
+
+    midiInput.setRecordingCallbacks(null, null, null, null, pressure);
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0xd0, 81]) }, 'keyboard-a');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0xa0, 64, 92]) }, 'keyboard-a');
+
+    expect(pressure).toHaveBeenNthCalledWith(1, 'channel', null, 81);
+    expect(pressure).toHaveBeenNthCalledWith(2, 'poly', 64, 92);
+  });
+
+  it('keeps recent expressive MIDI messages for retrospective capture', () => {
+    const midiInput = KGMidiInput.instance() as unknown as {
+      handleMIDIMessage: (...args: [TestMidiEvent, string?]) => void;
+      getRetrospectiveMessages: (durationSeconds?: number) => Array<{ kind: string; controller?: number }>;
+      clearRetrospectiveBuffer: () => void;
+    };
+
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x90, 60, 100]) }, 'keyboard-a');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0xe0, 0x00, 0x40]) }, 'keyboard-a');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0xb0, 11, 100]) }, 'keyboard-a');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0xd0, 70]) }, 'keyboard-a');
+
+    expect(midiInput.getRetrospectiveMessages()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'note-on' }),
+      expect.objectContaining({ kind: 'pitch-bend' }),
+      expect.objectContaining({ kind: 'control-change', controller: 11 }),
+      expect.objectContaining({ kind: 'channel-pressure' }),
+    ]));
+
+    midiInput.clearRetrospectiveBuffer();
+    expect(midiInput.getRetrospectiveMessages()).toEqual([]);
+  });
+
 });

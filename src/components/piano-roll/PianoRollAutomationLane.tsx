@@ -3,8 +3,10 @@ import { KGCore } from '../../core/KGCore';
 import { CreateMidiEventsCommand } from '../../core/commands/note/CreateMidiEventsCommand';
 import { UpdateControllerEventPropertiesCommand } from '../../core/commands/note/UpdateControllerEventPropertiesCommand';
 import { UpdatePitchBendPropertiesCommand } from '../../core/commands/note/UpdatePitchBendPropertiesCommand';
+import { UpdatePressureEventPropertiesCommand } from '../../core/commands/note/UpdatePressureEventPropertiesCommand';
 import { KGMidiControllerEvent } from '../../core/midi/KGMidiControllerEvent';
 import { KGMidiPitchBend } from '../../core/midi/KGMidiPitchBend';
+import { KGMidiPressureEvent } from '../../core/midi/KGMidiPressureEvent';
 import { KGPianoRollState, PIANO_ROLL_NO_SNAP } from '../../core/state/KGPianoRollState';
 import { KGMidiRegion } from '../../core/region/KGMidiRegion';
 import {
@@ -22,14 +24,17 @@ import {
   getAutomationLabel,
   getAutomationInterpolationMode,
   getControllerNumberForAutomationType,
+  getPressureKindForAutomationType,
   type PianoRollAutomationType,
 } from './pianoRollAutomation';
 import { useI18n } from '../../i18n/useI18n';
 
 interface AutomationPoint {
   id: string;
-  kind: 'pitch-bend' | 'controller';
+  kind: 'pitch-bend' | 'controller' | 'pressure';
   controller: number | null;
+  pressureKind?: 'channel' | 'poly';
+  note?: number | null;
   relativeBeat: number;
   absoluteBeat: number;
   value: number;
@@ -106,6 +111,7 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
     bumpAutomationRedrawVersion,
     selectedPitchBendIds,
     selectedControllerEventIds,
+    selectedPressureEventIds = [],
   } = useProjectStore();
 
   useEffect(() => {
@@ -214,6 +220,23 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
       }));
     }
 
+    const pressureKind = getPressureKindForAutomationType(automationType);
+    if (pressureKind) {
+      return activeRegion.getPressureEvents(pressureKind).map((event) => ({
+        id: event.getId(),
+        kind: 'pressure' as const,
+        controller: null,
+        pressureKind,
+        note: event.getNote(),
+        relativeBeat: event.getBeat(),
+        absoluteBeat: regionStartBeat + event.getBeat(),
+        value: event.getValue(),
+        label: pressureKind === 'poly' && event.getNote() !== null
+          ? `${event.getNote()}:${event.getValue()}`
+          : `${event.getValue()}`,
+      }));
+    }
+
     const controller = getControllerNumberForAutomationType(automationType);
     if (controller === null) {
       return [];
@@ -230,9 +253,12 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
     }));
   }, [activeRegion, automationType, redrawVersion]);
 
+  const pressureKind = getPressureKindForAutomationType(automationType);
   const selectedPointIds = automationType === 'pitch-bend'
     ? selectedPitchBendIds
-    : selectedControllerEventIds.filter(id => points.some(point => point.id === id));
+    : pressureKind
+      ? selectedPressureEventIds.filter(id => points.some(point => point.id === id))
+      : selectedControllerEventIds.filter(id => points.some(point => point.id === id));
   const selectedPointIdSet = new Set(selectedPointIds);
   const pointMap = new Map(points.map(point => [point.id, point]));
   const parentTrack = activeRegion
@@ -262,9 +288,15 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
       : clampMidiControllerValue(Math.round(rawValue));
   };
 
-  const getPointLabel = (value: number): string => (
-    automationType === 'pitch-bend' ? `${midiPitchBendToSignedValue(value)}` : `${value}`
-  );
+  const getPointLabel = (point: AutomationPoint, value: number): string => {
+    if (automationType === 'pitch-bend') {
+      return `${midiPitchBendToSignedValue(value)}`;
+    }
+    if (point.kind === 'pressure' && point.pressureKind === 'poly' && point.note !== null && point.note !== undefined) {
+      return `${point.note}:${value}`;
+    }
+    return `${value}`;
+  };
 
   const renderedPoints = points.map(point => {
     const preview = previewPoints[point.id];
@@ -275,7 +307,7 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
       ...point,
       absoluteBeat,
       value,
-      label: getPointLabel(value),
+      label: getPointLabel(point, value),
       x: absoluteBeat * beatWidth + keyWidth,
       y: toY(value),
       isSelected: selectedPointIdSet.has(point.id),
@@ -332,8 +364,12 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
         else controllerEvent.deselect();
       });
     });
+    activeRegion.getPressureEvents().forEach(pressureEvent => {
+      if (nextSelectedIds.has(pressureEvent.getId())) pressureEvent.select();
+      else pressureEvent.deselect();
+    });
 
-    const selectedEvents: Array<KGMidiPitchBend | KGMidiControllerEvent> = [];
+    const selectedEvents: Array<KGMidiPitchBend | KGMidiControllerEvent | KGMidiPressureEvent> = [];
     activeRegion.getPitchBends().forEach(pitchBend => {
       if (nextSelectedIds.has(pitchBend.getId())) {
         selectedEvents.push(pitchBend);
@@ -345,6 +381,11 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
           selectedEvents.push(controllerEvent);
         }
       });
+    });
+    activeRegion.getPressureEvents().forEach(pressureEvent => {
+      if (nextSelectedIds.has(pressureEvent.getId())) {
+        selectedEvents.push(pressureEvent);
+      }
     });
 
     const core = KGCore.instance();
@@ -363,8 +404,14 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
 
     const visiblePointIds = new Set(points.map(point => point.id));
     const hiddenSelection = automationType === 'pitch-bend'
-      ? selectedControllerEventIds.length > 0
-      : selectedPitchBendIds.length > 0 || selectedControllerEventIds.some(id => !visiblePointIds.has(id));
+      ? selectedControllerEventIds.length > 0 || selectedPressureEventIds.length > 0
+      : pressureKind
+        ? selectedPitchBendIds.length > 0
+          || selectedControllerEventIds.length > 0
+          || selectedPressureEventIds.some(id => !visiblePointIds.has(id))
+        : selectedPitchBendIds.length > 0
+          || selectedPressureEventIds.length > 0
+          || selectedControllerEventIds.some(id => !visiblePointIds.has(id));
 
     if (!hiddenSelection) {
       return;
@@ -382,6 +429,11 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
         }
       });
     });
+    activeRegion.getPressureEvents().forEach(pressureEvent => {
+      if (!visiblePointIds.has(pressureEvent.getId())) {
+        pressureEvent.deselect();
+      }
+    });
 
     const core = KGCore.instance();
     const visibleSelectedItems = core.getSelectedItems().filter(item => visiblePointIds.has(item.getId()));
@@ -391,7 +443,7 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
     }
 
     void updateTrack(parentTrack);
-  }, [activeRegion, automationType, parentTrack, points, selectedControllerEventIds, selectedPitchBendIds, updateTrack]);
+  }, [activeRegion, automationType, parentTrack, points, pressureKind, selectedControllerEventIds, selectedPitchBendIds, selectedPressureEventIds, updateTrack]);
 
   const getLaneCoordinates = (clientX: number, clientY: number) => {
     if (!laneRef.current) {
@@ -487,6 +539,23 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
           };
         });
         KGCore.instance().executeCommand(new UpdatePitchBendPropertiesCommand(activeRegion.getId(), snapshots, updates));
+      } else if (pressureKind) {
+        const snapshots = dragState.selectedPoints.map(point => ({
+          pressureEventId: point.id,
+          beat: point.relativeBeat,
+          value: point.value,
+          kind: pressureKind,
+          note: point.note ?? null,
+        }));
+        const updates = dragState.selectedPoints.map(point => {
+          const preview = pendingPreview[point.id];
+          return {
+            pressureEventId: point.id,
+            beat: preview.absoluteBeat - activeRegion.getStartFromBeat(),
+            value: preview.value,
+          };
+        });
+        KGCore.instance().executeCommand(new UpdatePressureEventPropertiesCommand(activeRegion.getId(), snapshots, updates));
       } else {
         const controller = getControllerNumberForAutomationType(automationType);
         if (controller !== null) {
@@ -690,6 +759,26 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
       const createdPitchBend = command.getCreatedPitchBends()[0]?.pitchBend;
       if (createdPitchBend) {
         await commitSelection(new Set([createdPitchBend.getId()]));
+      }
+    } else if (pressureKind) {
+      const selectedNote = pressureKind === 'poly'
+        ? activeRegion.getNotes().find(note => note.isSelected())?.getPitch() ?? null
+        : null;
+      if (pressureKind === 'poly' && selectedNote === null) {
+        return;
+      }
+
+      const command = new CreateMidiEventsCommand([], [], [], [{
+        regionId: activeRegion.getId(),
+        kind: pressureKind,
+        note: selectedNote,
+        beat: relativeBeat,
+        value,
+      }]);
+      KGCore.instance().executeCommand(command);
+      const createdPressureEvent = command.getCreatedPressureEvents()[0]?.pressureEvent;
+      if (createdPressureEvent) {
+        await commitSelection(new Set([createdPressureEvent.getId()]));
       }
     } else {
       const controller = getControllerNumberForAutomationType(automationType);

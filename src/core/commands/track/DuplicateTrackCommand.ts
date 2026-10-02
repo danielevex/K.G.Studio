@@ -4,6 +4,7 @@ import { KGAudioInterface } from '../../audio-interface/KGAudioInterface';
 import { KGMidiControllerEvent } from '../../midi/KGMidiControllerEvent';
 import { KGMidiNote } from '../../midi/KGMidiNote';
 import { KGMidiPitchBend } from '../../midi/KGMidiPitchBend';
+import { KGMidiPressureEvent } from '../../midi/KGMidiPressureEvent';
 import { KGAudioRegion } from '../../region/KGAudioRegion';
 import { KGMidiRegion } from '../../region/KGMidiRegion';
 import { KGAudioTrack } from '../../track/KGAudioTrack';
@@ -63,6 +64,13 @@ function cloneMidiRegion(region: KGMidiRegion, trackId: number, trackIndex: numb
       event.getBeat(),
       event.getValue(),
     ))
+  )));
+  duplicate.setPressureEvents(region.getPressureEvents().map(event => new KGMidiPressureEvent(
+    generateUniqueId('KGMidiPressureEvent'),
+    event.getBeat(),
+    event.getValue(),
+    event.getKind(),
+    event.getNote(),
   )));
   return duplicate;
 }

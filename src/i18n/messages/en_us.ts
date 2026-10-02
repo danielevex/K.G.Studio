@@ -353,6 +353,8 @@ export const enUsMessages: TranslationMessages = {
   'pianoRoll.automationType.cc7': 'CC7',
   'pianoRoll.automationType.cc11': 'CC11',
   'pianoRoll.automationType.cc64': 'CC64',
+  'pianoRoll.automationType.channelAftertouch': 'Channel Aftertouch',
+  'pianoRoll.automationType.polyAftertouch': 'Poly Aftertouch',
   'pianoRoll.mode': 'Mode',
   'pianoRoll.modeOption.ionian': 'Ionian',
   'pianoRoll.modeOption.dorian': 'Dorian',

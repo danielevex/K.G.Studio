@@ -6,6 +6,7 @@ import {
   type MidiLearnResult,
 } from '../core/midi-input/KGMidiInput';
 import type { LiveMidiMessage } from '../core/performance/LivePerformanceTypes';
+import { useProjectStore } from '../stores/projectStore';
 
 function noteName(note?: number): string {
   if (note === undefined) return '—';
@@ -54,6 +55,10 @@ const LiveMidiPanel: React.FC = () => {
   const [lastMessage, setLastMessage] = useState<LiveMidiMessage | null>(null);
   const [learnedControl, setLearnedControl] = useState<MidiLearnResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const activeRegionId = useProjectStore(state => state.activeRegionId);
+  const captureLastPerformance = useProjectStore(state => state.captureLastPerformance);
+  const currentStatus = useProjectStore(state => state.currentStatus);
+  const [capturing, setCapturing] = useState(false);
 
   useEffect(() => {
     void midi.initialize();
@@ -80,6 +85,16 @@ const LiveMidiPanel: React.FC = () => {
       await midi.requestMIDIAccess();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const handleCaptureLastPerformance = async () => {
+    if (!activeRegionId || capturing) return;
+    setCapturing(true);
+    try {
+      await captureLastPerformance(30);
+    } finally {
+      setCapturing(false);
     }
   };
 
@@ -175,6 +190,23 @@ const LiveMidiPanel: React.FC = () => {
                 </small>
               </div>
 
+              <div className="live-midi-capture">
+                <button
+                  type="button"
+                  className="live-midi-capture-button"
+                  onClick={() => { void handleCaptureLastPerformance(); }}
+                  disabled={!activeRegionId || capturing || midi.getRetrospectiveMessageCount() === 0}
+                  title={activeRegionId ? 'Capture recent MIDI into the active region' : 'Open a MIDI region first'}
+                >
+                  {capturing ? 'Capturing…' : 'Capture Last 30s'}
+                </button>
+                <small>
+                  {activeRegionId
+                    ? `${midi.getRetrospectiveMessageCount()} recent MIDI messages buffered`
+                    : 'Open a MIDI region to use retrospective capture'}
+                </small>
+              </div>
+
               <div className="live-midi-learn">
                 <button
                   type="button"
@@ -193,6 +225,9 @@ const LiveMidiPanel: React.FC = () => {
           )}
 
           {error && <div className="live-midi-error">{error}</div>}
+          {currentStatus.startsWith('Captured ') && (
+            <div className="live-midi-capture-status">{currentStatus}</div>
+          )}
         </div>
       )}
     </div>

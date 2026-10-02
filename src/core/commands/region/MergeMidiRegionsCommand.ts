@@ -4,6 +4,7 @@ import { KGMidiRegion } from '../../region/KGMidiRegion';
 import { KGMidiControllerEvent } from '../../midi/KGMidiControllerEvent';
 import { KGMidiNote } from '../../midi/KGMidiNote';
 import { KGMidiPitchBend } from '../../midi/KGMidiPitchBend';
+import { KGMidiPressureEvent, type MidiPressureKind } from '../../midi/KGMidiPressureEvent';
 import { KGTrack } from '../../track/KGTrack';
 import { useProjectStore } from '../../../stores/projectStore';
 
@@ -28,6 +29,13 @@ interface RegionSnapshot {
     beat: number;
     value: number;
   }>>;
+  pressureEvents: Array<{
+    id: string;
+    beat: number;
+    value: number;
+    kind: MidiPressureKind;
+    note: number | null;
+  }>;
 }
 
 interface ResolvedRegion {
@@ -58,6 +66,16 @@ function cloneControllerEvent(controllerEvent: KGMidiControllerEvent, beat: numb
     controllerEvent.getId(),
     beat,
     controllerEvent.getValue()
+  );
+}
+
+function clonePressureEvent(pressureEvent: KGMidiPressureEvent, beat: number): KGMidiPressureEvent {
+  return new KGMidiPressureEvent(
+    pressureEvent.getId(),
+    beat,
+    pressureEvent.getValue(),
+    pressureEvent.getKind(),
+    pressureEvent.getNote()
   );
 }
 
@@ -142,6 +160,13 @@ export class MergeMidiRegionsCommand extends KGCommand {
             value: event.getValue(),
           }))
         )),
+        pressureEvents: region.getPressureEvents().map(event => ({
+          id: event.getId(),
+          beat: event.getBeat(),
+          value: event.getValue(),
+          kind: event.getKind(),
+          note: event.getNote(),
+        })),
       });
     });
 
@@ -158,6 +183,7 @@ export class MergeMidiRegionsCommand extends KGCommand {
     const mergedNotes = [...this.survivingRegion.getNotes()];
     const mergedPitchBends = [...this.survivingRegion.getPitchBends()];
     const mergedControllerEventsByType = this.survivingRegion.getControllerEventsByType().map(events => [...events]);
+    const mergedPressureEvents = [...this.survivingRegion.getPressureEvents()];
     for (const { region } of resolvedRegions.slice(1)) {
       const regionStart = region.getStartFromBeat();
       region.getNotes().forEach(note => {
@@ -183,12 +209,19 @@ export class MergeMidiRegionsCommand extends KGCommand {
           ));
         });
       });
+      region.getPressureEvents().forEach(event => {
+        mergedPressureEvents.push(clonePressureEvent(
+          event,
+          regionStart + event.getBeat() - survivingRegionStart
+        ));
+      });
     }
 
     this.survivingRegion.setLength(mergedEndBeat - survivingRegionStart);
     this.survivingRegion.setNotes(mergedNotes);
     this.survivingRegion.setPitchBends(mergedPitchBends);
     this.survivingRegion.setControllerEventsByType(mergedControllerEventsByType);
+    this.survivingRegion.setPressureEvents(mergedPressureEvents);
 
     const removedRegionIds = new Set(this.removedRegions.map(({ region }) => region.getId()));
     const nextRegions = resolvedTargetTrack.getRegions().filter(region => !removedRegionIds.has(region.getId()));
@@ -235,6 +268,13 @@ export class MergeMidiRegionsCommand extends KGCommand {
         event.value
       ))
     )));
+    this.survivingRegion.setPressureEvents(survivingSnapshot.pressureEvents.map(event => new KGMidiPressureEvent(
+      event.id,
+      event.beat,
+      event.value,
+      event.kind,
+      event.note
+    )));
 
     for (const { region } of this.removedRegions) {
       const snapshot = this.originalRegionSnapshots.get(region.getId());
@@ -261,6 +301,13 @@ export class MergeMidiRegionsCommand extends KGCommand {
           event.beat,
           event.value
         ))
+      )));
+      region.setPressureEvents(snapshot.pressureEvents.map(event => new KGMidiPressureEvent(
+        event.id,
+        event.beat,
+        event.value,
+        event.kind,
+        event.note
       )));
     }
 
