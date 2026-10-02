@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { KGCore } from '../../KGCore';
 import { MergeMidiRegionsCommand } from './MergeMidiRegionsCommand';
+import { KGMidiPressureEvent } from '../../midi/KGMidiPressureEvent';
 import { createMockMidiNote, createMockMidiRegion, createMockMidiTrack, createMockProject } from '../../../test/utils/mock-data';
 
 const storeState = {
@@ -74,6 +75,8 @@ describe('MergeMidiRegionsCommand', () => {
       length: 2,
       notes: [createMockMidiNote({ id: 'note-c', startBeat: 0, endBeat: 1, pitch: 72 })],
     });
+    regionA.addPressureEvent(new KGMidiPressureEvent('pressure-a', 1, 70, 'channel', null));
+    regionB.addPressureEvent(new KGMidiPressureEvent('pressure-b', 1.5, 90, 'poly', 67));
     const track = createMockMidiTrack({ id: 1, regions: [regionA, regionB, regionC] });
     track.setTrackIndex(0);
     mockCore.getCurrentProject.mockReturnValue(createMockProject({ tracks: [track] }));
@@ -92,6 +95,16 @@ describe('MergeMidiRegionsCommand', () => {
       ['note-a', 0.5, 1.5],
       ['note-b', 5, 6],
       ['note-c', 10, 11],
+    ]);
+    expect(regionA.getPressureEvents().map(event => [
+      event.getId(),
+      event.getBeat(),
+      event.getValue(),
+      event.getKind(),
+      event.getNote(),
+    ])).toEqual([
+      ['pressure-a', 1, 70, 'channel', null],
+      ['pressure-b', 5.5, 90, 'poly', 67],
     ]);
     expect(mockCore.clearSelectedItems).toHaveBeenCalledTimes(1);
     expect(mockCore.addSelectedItem).toHaveBeenCalledWith(regionA);
