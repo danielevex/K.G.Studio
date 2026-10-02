@@ -76,6 +76,10 @@ const LiveMidiPanel: React.FC = () => {
   const selectedInputId = midi.getSelectedInputId();
   const channelFilter = midi.getChannelFilter();
   const midiLearnArmed = midi.getMidiLearnArmed();
+  const performanceProfileId = midi.getPerformanceProfileId();
+  const performanceProfiles = midi.getPerformanceProfiles();
+  const performanceSnapshot = midi.getGuitarPerformanceSnapshot();
+  const performanceSettings = midi.getGuitarPerformanceSettings();
   const hasAccess = midi.getMIDIAccess() !== null;
   const supported = midi.getIsWebMidiSupported();
 
@@ -188,6 +192,64 @@ const LiveMidiPanel: React.FC = () => {
                     ? inputs.find((input) => input.id === lastMessage.deviceId)?.name ?? lastMessage.deviceId
                     : '—'}
                 </small>
+              </div>
+
+              <div className="live-midi-performance">
+                <label className="live-midi-field">
+                  <span>Performance</span>
+                  <select
+                    value={performanceProfileId}
+                    onChange={(event) => midi.setPerformanceProfile(event.target.value)}
+                  >
+                    <option value="off">Standard MIDI</option>
+                    {performanceProfiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>{profile.name}</option>
+                    ))}
+                  </select>
+                </label>
+
+                {performanceProfileId !== 'off' && performanceSettings && (
+                  <>
+                    <label className="live-midi-field">
+                      <span>Bend range</span>
+                      <select
+                        value={String(performanceSettings.bendRangeSemitones)}
+                        onChange={(event) => midi.setGuitarBendRangeSemitones(Number(event.target.value))}
+                      >
+                        {[1, 2, 3, 4, 7, 12].map((value) => (
+                          <option key={value} value={value}>±{value} semitone{value === 1 ? '' : 's'}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="live-midi-performance-status">
+                      <div>
+                        <span>MODE</span>
+                        <strong>{performanceSnapshot?.mode === 'mono-lead' ? 'MONO LEAD' : 'POLY'}</strong>
+                      </div>
+                      <div>
+                        <span>NOTE</span>
+                        <strong>{performanceSnapshot?.activeNote ?? '—'}</strong>
+                      </div>
+                      <div>
+                        <span>GESTURE</span>
+                        <strong>{performanceSnapshot?.lastTransition ?? '—'}</strong>
+                      </div>
+                      <div>
+                        <span>ARTICULATION</span>
+                        <strong>{performanceSnapshot?.activeArticulationId ?? '—'}</strong>
+                      </div>
+                      <div>
+                        <span>BEND</span>
+                        <strong>{(performanceSnapshot?.bendSemitones ?? 0).toFixed(2)} st</strong>
+                      </div>
+                      <div>
+                        <span>VIBRATO</span>
+                        <strong>{Math.round((performanceSnapshot?.vibrato ?? 0) * 100)}%</strong>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="live-midi-capture">
