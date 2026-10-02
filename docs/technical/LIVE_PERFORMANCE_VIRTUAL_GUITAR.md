@@ -350,14 +350,28 @@ Validation for LP1 is covered by the repository CI workflow (TypeScript/Vite bui
 
 Retrospective capture aligns the newest buffered event with the current transport/playhead position and reconstructs note durations and expressive events into region-relative beats.
 
-### LP3 — Guitar Performance Engine
+### LP3 — Guitar Performance Engine — IMPLEMENTED
 
-- mono lead mode;
-- bend range;
-- legato;
-- articulation state machine;
-- vibrato smoothing;
-- controller presets.
+- vendor-neutral `GuitarPerformanceEngine` that converts raw MIDI into semantic `PerformanceEvent` data;
+- monophonic lead mode with last-note priority;
+- polyphonic engine mode available for backend/profile use;
+- configurable pitch-wheel bend range;
+- legato transition detection;
+- hammer-on and pull-off detection for close intervals;
+- slide-up / slide-down intent detection for wider overlapping intervals;
+- separate persistent articulation state and transition gesture state;
+- latched sustain / palm-mute / harmonic keyswitch articulations in the Standard profile;
+- smoothed vibrato control from CC1 and, in the Expressive profile, channel aftertouch;
+- audible live vibrato in the current sampler backend without changing the recorded raw MIDI;
+- expression and sustain semantic routing;
+- built-in **Standard**, **Expressive** and **Wide Bend** guitar controller profiles;
+- persisted performance profile, bend-range and vibrato-smoothing preferences;
+- Live MIDI panel controls for profile and bend range plus live note / gesture / articulation / bend / vibrato telemetry;
+- keyswitch notes are excluded from normal note recording and retrospective note capture;
+- LP2 raw note, velocity, pitch-bend, CC and aftertouch recording remains non-destructive;
+- automated tests cover transition semantics, controller mapping, configurable bend, audible vibrato, MIDI routing and keyswitch behavior.
+
+The current SoundFont/sampler backend can monitor LP3 performances immediately. Its note transitions still retrigger samples because backend-specific true legato, dedicated slide samples and articulation switching belong to LP4 instrument adapters. The LP3 event stream already carries the semantic distinction so those future backends do not require rewriting recorded performances.
 
 ### LP4 — High-quality instrument backend
 
