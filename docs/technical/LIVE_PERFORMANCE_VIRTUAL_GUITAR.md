@@ -335,13 +335,20 @@ LP1 deliberately keeps performance mappings transient. Persisted bend/vibrato/ar
 
 Validation for LP1 is covered by the repository CI workflow (TypeScript/Vite build plus the Vitest suite).
 
-### LP2 — Recording & expressive lanes
+### LP2 — Recording & expressive lanes — IMPLEMENTED
 
-- arm/record live MIDI;
-- pitch-bend and CC lanes;
-- sustain/aftertouch capture;
-- retrospective MIDI buffer;
-- project persistence and upgrader.
+- arm/record live MIDI with notes and velocity;
+- persisted pitch-bend events;
+- persisted MIDI CC events, including sustain and expression;
+- persisted channel aftertouch and poly aftertouch;
+- editable Piano Roll automation lanes for pitch bend, CC and aftertouch;
+- undoable create/update/delete operations for expressive events;
+- 30-second retrospective MIDI ring buffer;
+- **Capture Last 30s** from the Live MIDI panel into the active MIDI region;
+- project structure V18 migration for aftertouch persistence;
+- automated tests for retrospective reconstruction, pressure recording and buffering.
+
+Retrospective capture aligns the newest buffered event with the current transport/playhead position and reconstructs note durations and expressive events into region-relative beats.
 
 ### LP3 — Guitar Performance Engine
 
