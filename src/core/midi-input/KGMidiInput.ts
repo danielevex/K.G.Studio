@@ -605,6 +605,9 @@ export class KGMidiInput {
 
     const snapshot = engine.getSnapshot();
     if (snapshot.activeNote === null && snapshot.heldNotes.length === 0 && !snapshot.sustain) {
+      if (this.guitarPerformanceTrackId) {
+        KGAudioInterface.instance().setLiveMidiVibrato(this.guitarPerformanceTrackId, 0);
+      }
       this.guitarPerformanceTrackId = null;
     }
 
@@ -647,6 +650,15 @@ export class KGMidiInput {
         this.guitarPerformanceTrackId = trackId;
         this.latchTrackIdForPitch(event.note, trackId);
         audioInterface.triggerLiveMidiNoteAttack(trackId, event.note, event.velocity ?? 127);
+        const snapshot = this.guitarPerformanceEngine?.getSnapshot();
+        if (settings && snapshot && snapshot.vibrato > 0) {
+          audioInterface.setLiveMidiVibrato(
+            trackId,
+            snapshot.vibrato,
+            settings.vibratoMaxSemitones ?? 0.35,
+            settings.vibratoRateHz ?? 5.5,
+          );
+        }
         continue;
       }
 
