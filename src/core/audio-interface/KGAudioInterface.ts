@@ -1051,6 +1051,16 @@ export class KGAudioInterface {
     }
   }
 
+  public releaseAllLiveMidi(trackId: string): void {
+    try {
+      const audioBus = this.trackAudioBuses.get(trackId);
+      if (!audioBus) return;
+      audioBus.releaseAll();
+    } catch (error) {
+      console.error(`Error releasing all live MIDI for track ${trackId}:`, error);
+    }
+  }
+
   public setLiveMidiPitchBend(trackId: string, normalizedBend: number): void {
     try {
       const audioBus = this.trackAudioBuses.get(trackId);
