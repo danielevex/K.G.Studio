@@ -111,7 +111,7 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
     bumpAutomationRedrawVersion,
     selectedPitchBendIds,
     selectedControllerEventIds,
-    selectedPressureEventIds,
+    selectedPressureEventIds = [],
   } = useProjectStore();
 
   useEffect(() => {
