@@ -12,6 +12,7 @@ import { SettingsPanel } from './components/settings';
 import LoadingOverlay from './components/common/LoadingOverlay';
 import KGOnePanel from './components/KGOnePanel';
 import EventListPanel from './components/EventListPanel';
+import LiveMidiPanel from './components/LiveMidiPanel';
 import { useEffect as useEffectReact, useState, useRef } from 'react';
 import { KGToneBuffersPool } from './core/audio-interface/KGToneBuffersPool';
 import { KGOfflineRenderer } from './core/audio-interface/KGOfflineRenderer';
@@ -185,6 +186,7 @@ function App() {
         <KGOnePanel isVisible={showKGOnePanel && !showSettings} />
         <EventListPanel isVisible={showEventListPanel && !showSettings} />
         <ChatBox isVisible={showChatBox && !showSettings} />
+        <LiveMidiPanel />
       </div>
 
 

@@ -1,6 +1,7 @@
 import { KGAudioInterface } from '../audio-interface/KGAudioInterface';
 import { useProjectStore } from '../../stores/projectStore';
 import { KGMidiTrack } from '../track/KGMidiTrack';
+import type { LiveMidiMessage } from '../performance/LivePerformanceTypes';
 
 export interface LiveMidiNoteActivityEvent {
   pitch: number;
@@ -8,6 +9,23 @@ export interface LiveMidiNoteActivityEvent {
 }
 
 type LiveNoteActivityListener = (...args: [LiveMidiNoteActivityEvent]) => void;
+type LiveMidiMessageListener = (...args: [LiveMidiMessage]) => void;
+type MidiStateListener = () => void;
+
+export interface MidiInputDescriptor {
+  id: string;
+  name: string;
+  manufacturer: string;
+  state: MIDIPortDeviceState;
+}
+
+export interface MidiLearnResult {
+  kind: 'cc' | 'pitch-wheel' | 'channel-aftertouch' | 'poly-aftertouch' | 'note';
+  deviceId: string;
+  channel: number;
+  controller?: number;
+  note?: number;
+}
 
 /**
  * KGMidiInput - MIDI input manager for the DAW
@@ -31,6 +49,13 @@ export class KGMidiInput {
   private midiAccess: MIDIAccess | null = null;
   private isInitialized: boolean = false;
   private connectedInputs: Map<string, MIDIInput> = new Map();
+  private selectedInputId: string | null = null;
+  private channelFilter: number | null = null;
+  private stateVersion = 0;
+  private stateListeners: Set<MidiStateListener> = new Set();
+  private liveMidiMessageListeners: Set<LiveMidiMessageListener> = new Set();
+  private midiLearnListener: ((result: MidiLearnResult) => void) | null = null;
+  private midiLearnArmed = false;
 
   // Recording callbacks
   private onRecordNoteOn: ((pitch: number, velocity: number) => void) | null = null;
@@ -79,6 +104,10 @@ export class KGMidiInput {
    * This must be called after a user gesture (click, keydown, etc.)
    */
   public async requestMIDIAccess(): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
     if (this.midiAccess) {
       console.log("MIDI access already granted");
       return;
@@ -99,6 +128,7 @@ export class KGMidiInput {
 
       // Connect to all existing inputs
       this.connectToAllInputs();
+      this.notifyStateChange();
     } catch (error) {
       console.error("Failed to request MIDI access:", error);
       throw error;
@@ -124,6 +154,7 @@ export class KGMidiInput {
           console.log(`MIDI device disconnected: ${port.name}`);
           this.disconnectFromInput(port.id);
         }
+        this.notifyStateChange();
       }
     };
   }
@@ -149,13 +180,14 @@ export class KGMidiInput {
   private connectToInput(input: MIDIInput): void {
     // Set up message handler
     input.onmidimessage = (event: MIDIMessageEvent) => {
-      this.handleMIDIMessage(event);
+      this.handleMIDIMessage(event, input.id);
     };
 
     // Store the input
     this.connectedInputs.set(input.id, input);
 
     console.log(`Listening to MIDI input: ${input.name} (${input.id})`);
+    this.notifyStateChange();
   }
 
   /**
@@ -167,47 +199,208 @@ export class KGMidiInput {
       input.onmidimessage = null;
     }
     this.connectedInputs.delete(inputId);
+    if (this.selectedInputId === inputId) {
+      this.selectedInputId = null;
+    }
+    this.notifyStateChange();
   }
 
   /**
-   * Handle incoming MIDI messages
+   * Handle incoming MIDI messages.
+   * sourceInputId is supplied by real Web MIDI inputs; tests may omit it.
    */
-  private handleMIDIMessage(event: MIDIMessageEvent): void {
-    if (!event.data) {
+  private handleMIDIMessage(event: MIDIMessageEvent, sourceInputId?: string): void {
+    if (!event.data || event.data.length === 0) {
       return;
     }
 
-    const [status, pitch, velocity] = event.data;
+    if (this.selectedInputId && sourceInputId && sourceInputId !== this.selectedInputId) {
+      return;
+    }
 
-    // Extract command (high nibble) and channel (low nibble)
+    const status = event.data[0] ?? 0;
+    const data1 = event.data[1] ?? 0;
+    const data2 = event.data[2] ?? 0;
     const command = status & 0xf0;
     const channel = status & 0x0f;
 
+    // System messages do not carry a normal MIDI channel and are outside LP1.
+    if (command === 0xf0) {
+      return;
+    }
+
+    if (this.channelFilter !== null && channel !== this.channelFilter) {
+      return;
+    }
+
+    const deviceId = sourceInputId ?? this.selectedInputId ?? 'unknown';
+    const baseMessage = {
+      deviceId,
+      channel,
+      timestampMs: event.timeStamp ?? performance.now(),
+      data1,
+      data2,
+    };
+
     // Note On: command = 0x90 (144)
-    if (command === 0x90 && velocity > 0) {
-      console.log(`MIDI Note On: pitch=${pitch}, velocity=${velocity}, channel=${channel}`);
-      this.emitLiveNoteActivity({ pitch, isNoteOn: true });
-      this.triggerNoteOn(pitch, velocity);
-      this.onRecordNoteOn?.(pitch, velocity);
+    if (command === 0x90 && data2 > 0) {
+      const message: LiveMidiMessage = {
+        ...baseMessage,
+        kind: 'note-on',
+        note: data1,
+        velocity: data2,
+        value: data2,
+        normalizedValue: data2 / 127,
+      };
+      this.emitLiveMidiMessage(message);
+      this.resolveMidiLearn(message);
+      console.log(`MIDI Note On: pitch=${data1}, velocity=${data2}, channel=${channel}`);
+      this.emitLiveNoteActivity({ pitch: data1, isNoteOn: true });
+      this.triggerNoteOn(data1, data2);
+      this.onRecordNoteOn?.(data1, data2);
     }
     // Note Off: command = 0x80 (128) or Note On with velocity 0
-    else if (command === 0x80 || (command === 0x90 && velocity === 0)) {
-      console.log(`MIDI Note Off: pitch=${pitch}, channel=${channel}`);
-      this.emitLiveNoteActivity({ pitch, isNoteOn: false });
-      this.triggerNoteOff(pitch);
-      this.onRecordNoteOff?.(pitch);
+    else if (command === 0x80 || (command === 0x90 && data2 === 0)) {
+      const message: LiveMidiMessage = {
+        ...baseMessage,
+        kind: 'note-off',
+        note: data1,
+        velocity: data2,
+        value: data2,
+        normalizedValue: data2 / 127,
+      };
+      this.emitLiveMidiMessage(message);
+      console.log(`MIDI Note Off: pitch=${data1}, channel=${channel}`);
+      this.emitLiveNoteActivity({ pitch: data1, isNoteOn: false });
+      this.triggerNoteOff(data1);
+      this.onRecordNoteOff?.(data1);
+    }
+    // Polyphonic Key Pressure: command = 0xA0 (160)
+    else if (command === 0xa0) {
+      const message: LiveMidiMessage = {
+        ...baseMessage,
+        kind: 'poly-aftertouch',
+        note: data1,
+        value: data2,
+        normalizedValue: data2 / 127,
+      };
+      this.emitLiveMidiMessage(message);
+      this.resolveMidiLearn(message);
     }
     // Control Change: command = 0xB0 (176)
     else if (command === 0xb0) {
-      console.log(`MIDI Control Change: controller=${pitch}, value=${velocity}, channel=${channel}`);
-      this.handleControlChange(pitch, velocity);
+      const message: LiveMidiMessage = {
+        ...baseMessage,
+        kind: 'control-change',
+        controller: data1,
+        value: data2,
+        normalizedValue: data2 / 127,
+      };
+      this.emitLiveMidiMessage(message);
+      this.resolveMidiLearn(message);
+      console.log(`MIDI Control Change: controller=${data1}, value=${data2}, channel=${channel}`);
+      this.handleControlChange(data1, data2);
+    }
+    // Program Change: command = 0xC0 (192)
+    else if (command === 0xc0) {
+      this.emitLiveMidiMessage({
+        ...baseMessage,
+        kind: 'program-change',
+        value: data1,
+        normalizedValue: data1 / 127,
+      });
+    }
+    // Channel Pressure: command = 0xD0 (208)
+    else if (command === 0xd0) {
+      const message: LiveMidiMessage = {
+        ...baseMessage,
+        kind: 'channel-pressure',
+        value: data1,
+        normalizedValue: data1 / 127,
+      };
+      this.emitLiveMidiMessage(message);
+      this.resolveMidiLearn(message);
     }
     // Pitch Bend: command = 0xE0 (224)
     else if (command === 0xe0) {
-      const pitchBendValue = (velocity << 7) | pitch;
+      const pitchBendValue = (data2 << 7) | data1;
+      const normalizedValue = this.normalizePitchBend(pitchBendValue);
+      const message: LiveMidiMessage = {
+        ...baseMessage,
+        kind: 'pitch-bend',
+        value: pitchBendValue,
+        normalizedValue,
+      };
+      this.emitLiveMidiMessage(message);
+      this.resolveMidiLearn(message);
       console.log(`MIDI Pitch Bend: value=${pitchBendValue}, channel=${channel}`);
-      this.triggerPitchBend(this.normalizePitchBend(pitchBendValue));
+      this.triggerPitchBend(normalizedValue);
       this.onRecordPitchBend?.(pitchBendValue);
+    }
+  }
+
+  private emitLiveMidiMessage(message: LiveMidiMessage): void {
+    for (const listener of this.liveMidiMessageListeners) {
+      try {
+        listener(message);
+      } catch {
+        // Listener failures must never interrupt live MIDI processing.
+      }
+    }
+  }
+
+  private resolveMidiLearn(message: LiveMidiMessage): void {
+    if (!this.midiLearnArmed || !this.midiLearnListener) {
+      return;
+    }
+
+    let result: MidiLearnResult | null = null;
+    if (message.kind === 'control-change' && message.controller !== undefined) {
+      result = {
+        kind: 'cc',
+        deviceId: message.deviceId,
+        channel: message.channel,
+        controller: message.controller,
+      };
+    } else if (message.kind === 'pitch-bend') {
+      result = { kind: 'pitch-wheel', deviceId: message.deviceId, channel: message.channel };
+    } else if (message.kind === 'channel-pressure') {
+      result = { kind: 'channel-aftertouch', deviceId: message.deviceId, channel: message.channel };
+    } else if (message.kind === 'poly-aftertouch') {
+      result = {
+        kind: 'poly-aftertouch',
+        deviceId: message.deviceId,
+        channel: message.channel,
+        note: message.note,
+      };
+    } else if (message.kind === 'note-on') {
+      result = {
+        kind: 'note',
+        deviceId: message.deviceId,
+        channel: message.channel,
+        note: message.note,
+      };
+    }
+
+    if (!result) {
+      return;
+    }
+
+    const listener = this.midiLearnListener;
+    this.midiLearnListener = null;
+    this.midiLearnArmed = false;
+    this.notifyStateChange();
+    listener(result);
+  }
+
+  private notifyStateChange(): void {
+    this.stateVersion += 1;
+    for (const listener of this.stateListeners) {
+      try {
+        listener();
+      } catch {
+        // State subscribers are UI helpers and must not break MIDI input.
+      }
     }
   }
 
@@ -395,6 +588,13 @@ export class KGMidiInput {
       this.liveNoteTrackOwnership.clear();
       this.sustainPolarityInverted = null;
       this.liveNoteActivityListeners = [];
+      this.liveMidiMessageListeners.clear();
+      this.stateListeners.clear();
+      this.selectedInputId = null;
+      this.channelFilter = null;
+      this.midiLearnListener = null;
+      this.midiLearnArmed = false;
+      this.notifyStateChange();
 
       console.log("MIDI resources disposed successfully");
     } catch (error) {
@@ -424,6 +624,50 @@ export class KGMidiInput {
     this.liveNoteActivityListeners = this.liveNoteActivityListeners.filter(current => current !== listener);
   }
 
+  public addLiveMidiMessageListener(listener: LiveMidiMessageListener): void {
+    this.liveMidiMessageListeners.add(listener);
+  }
+
+  public removeLiveMidiMessageListener(listener: LiveMidiMessageListener): void {
+    this.liveMidiMessageListeners.delete(listener);
+  }
+
+  public subscribeState(listener: MidiStateListener): () => void {
+    this.stateListeners.add(listener);
+    return () => {
+      this.stateListeners.delete(listener);
+    };
+  }
+
+  public selectInput(inputId: string | null): void {
+    if (inputId !== null && !this.connectedInputs.has(inputId)) {
+      throw new Error(`Unknown MIDI input: ${inputId}`);
+    }
+    this.selectedInputId = inputId;
+    this.sustainPolarityInverted = null;
+    this.notifyStateChange();
+  }
+
+  public setChannelFilter(channel: number | null): void {
+    if (channel !== null && (!Number.isInteger(channel) || channel < 0 || channel > 15)) {
+      throw new Error('MIDI channel must be null (Omni) or an integer from 0 to 15');
+    }
+    this.channelFilter = channel;
+    this.notifyStateChange();
+  }
+
+  public beginMidiLearn(listener: (result: MidiLearnResult) => void): void {
+    this.midiLearnListener = listener;
+    this.midiLearnArmed = true;
+    this.notifyStateChange();
+  }
+
+  public cancelMidiLearn(): void {
+    this.midiLearnListener = null;
+    this.midiLearnArmed = false;
+    this.notifyStateChange();
+  }
+
   // ===== GETTERS =====
 
   public getIsInitialized(): boolean {
@@ -440,5 +684,34 @@ export class KGMidiInput {
 
   public getConnectedInputCount(): number {
     return this.connectedInputs.size;
+  }
+
+  public getConnectedInputDescriptors(): MidiInputDescriptor[] {
+    return Array.from(this.connectedInputs.values()).map((input) => ({
+      id: input.id,
+      name: input.name || 'MIDI Input',
+      manufacturer: input.manufacturer || '',
+      state: input.state,
+    }));
+  }
+
+  public getSelectedInputId(): string | null {
+    return this.selectedInputId;
+  }
+
+  public getChannelFilter(): number | null {
+    return this.channelFilter;
+  }
+
+  public getMidiLearnArmed(): boolean {
+    return this.midiLearnArmed;
+  }
+
+  public getStateVersion(): number {
+    return this.stateVersion;
+  }
+
+  public getIsWebMidiSupported(): boolean {
+    return typeof navigator !== 'undefined' && typeof navigator.requestMIDIAccess === 'function';
   }
 }

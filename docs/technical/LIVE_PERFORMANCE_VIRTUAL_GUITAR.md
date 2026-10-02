@@ -320,14 +320,20 @@ These contracts should be independent from UI framework and plugin vendor.
 - adapter interfaces;
 - no audio backend assumptions.
 
-### LP1 — Live MIDI foundation
+### LP1 — Live MIDI foundation — IMPLEMENTED
 
 - Web MIDI input in browser build;
-- device selector;
-- MIDI channel filter;
-- note/pitch/CC/aftertouch capture;
-- MIDI learn;
-- visible input monitor.
+- user-gesture MIDI permission flow;
+- device selector with All Inputs fallback;
+- Omni / MIDI channel 1–16 filter;
+- note, pitch bend, CC, channel aftertouch and poly-aftertouch monitoring;
+- MIDI Learn for CC, pitch wheel, aftertouch and keyswitch-style notes;
+- visible live input monitor;
+- hot-plug device refresh through Web MIDI state-change events.
+
+LP1 deliberately keeps performance mappings transient. Persisted bend/vibrato/articulation mappings belong to LP2/LP3.
+
+Validation for LP1 is covered by the repository CI workflow (TypeScript/Vite build plus the Vitest suite).
 
 ### LP2 — Recording & expressive lanes
 
