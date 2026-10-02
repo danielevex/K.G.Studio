@@ -10,6 +10,7 @@ import { KGAudioInterface } from '../core/audio-interface/KGAudioInterface';
 import { KGPianoRollState } from '../core/state/KGPianoRollState';
 import { KGMidiNote } from '../core/midi/KGMidiNote';
 import { KGMidiControllerEvent } from '../core/midi/KGMidiControllerEvent';
+import { KGMidiPressureEvent, type MidiPressureKind } from '../core/midi/KGMidiPressureEvent';
 import { KGRegion } from '../core/region/KGRegion';
 import { AddTrackCommand, AddAudioTrackCommand, DuplicateTrackCommand, type DuplicateTrackOptions, RemoveTrackCommand, ReorderTracksCommand, UpdateTrackCommand, type TrackUpdateProperties, PasteRegionsCommand, PasteNotesCommand, ChangeProjectPropertyCommand, ImportAudioCommand, UpdateRegionCommand, type RegionUpdateProperties } from '../core/commands';
 import { KGAudioTrack } from '../core/track/KGAudioTrack';
@@ -28,7 +29,8 @@ import * as Tone from 'tone';
 import { KGMidiInput } from '../core/midi-input/KGMidiInput';
 import { KGMidiRegion } from '../core/region/KGMidiRegion';
 import { KGMidiPitchBend } from '../core/midi/KGMidiPitchBend';
-import { CreateMidiEventsCommand, type NoteCreationData, type PitchBendCreationData, type ControllerEventCreationData } from '../core/commands/note/CreateMidiEventsCommand';
+import { CreateMidiEventsCommand, type NoteCreationData, type PitchBendCreationData, type ControllerEventCreationData, type PressureEventCreationData } from '../core/commands/note/CreateMidiEventsCommand';
+import { buildRetrospectiveMidiCapture } from '../core/midi-input/retrospectiveMidi';
 import { MIDI_PITCH_BEND_CENTER } from '../util/midiUtil';
 import { KGTrackAutomationPoint, type TrackAutomationType } from '../core/track/KGTrackAutomationPoint';
 import type { AudioRecordingPeak } from '../core/audio-interface/KGAudioRecorder';
@@ -137,6 +139,7 @@ interface ProjectState {
   selectedNoteIds: string[];
   selectedPitchBendIds: string[];
   selectedControllerEventIds: string[];
+  selectedPressureEventIds: string[];
   selectedTrackAutomationPointIds: string[];
   selectedRegionIds: string[];
   selectedTrackId: string | null;
@@ -188,6 +191,7 @@ interface ProjectState {
   recordingNotes: Array<{ pitch: number; startBeat: number; endBeat: number; velocity: number }>;
   recordingPitchBends: Array<{ beat: number; value: number }>;
   recordingControllerEventsByType: Array<Array<{ beat: number; value: number }>>;
+  recordingPressureEvents: Array<{ kind: MidiPressureKind; note: number | null; beat: number; value: number }>;
   recordingOriginalPlayhead: number;
   recordingStartBeatAbsolute: number;
   recordingCommitStartBeatAbsolute: number;
@@ -302,6 +306,7 @@ interface ProjectState {
   // Recording actions
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
+  captureLastPerformance: (durationSeconds?: number) => Promise<number>;
 
   // Initialization actions
   initializeFromConfig: () => Promise<void>;
@@ -312,6 +317,7 @@ let _recordingActiveNotes: Map<number, { startBeat: number; velocity: number }> 
 let _recordingRegionStartBeat: number = 0;
 let _lastRecordedPitchBendValue: number | null = null;
 let _lastRecordedControllerValues: Map<number, number> = new Map();
+let _lastRecordedPressureValues: Map<string, number> = new Map();
 let _audioRecordingStartTimeoutId: number | null = null;
 let _audioRecordingForcedStopBeatAbsolute: number | null = null;
 let _audioRecordingHasStarted: boolean = false;
@@ -467,6 +473,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     const controllerEventIds = selectedItems
       .filter(item => item instanceof KGMidiControllerEvent)
       .map(item => item.getId());
+    const pressureEventIds = selectedItems
+      .filter(item => item instanceof KGMidiPressureEvent)
+      .map(item => item.getId());
     const trackAutomationPointIds = selectedItems
       .filter(item => item instanceof KGTrackAutomationPoint)
       .map(item => item.getId());
@@ -478,6 +487,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       selectedNoteIds: noteIds,
       selectedPitchBendIds: pitchBendIds,
       selectedControllerEventIds: controllerEventIds,
+      selectedPressureEventIds: pressureEventIds,
       selectedTrackAutomationPointIds: trackAutomationPointIds,
       selectedRegionIds: regionIds
     });
@@ -550,6 +560,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     selectedNoteIds: [],
     selectedPitchBendIds: [],
     selectedControllerEventIds: [],
+    selectedPressureEventIds: [],
     selectedTrackAutomationPointIds: [],
     selectedRegionIds: [],
     selectedTrackId: initialSelectedTrackId,
@@ -606,6 +617,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     recordingNotes: [],
     recordingPitchBends: [],
     recordingControllerEventsByType: createEmptyRecordedControllerBuckets(),
+    recordingPressureEvents: [],
     recordingOriginalPlayhead: 0,
     recordingStartBeatAbsolute: 0,
     recordingCommitStartBeatAbsolute: 0,
