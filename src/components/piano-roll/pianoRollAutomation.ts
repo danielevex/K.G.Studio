@@ -6,7 +6,9 @@ export type PianoRollAutomationType =
   | 'cc-2'
   | 'cc-7'
   | 'cc-11'
-  | 'cc-64';
+  | 'cc-64'
+  | 'channel-aftertouch'
+  | 'poly-aftertouch';
 
 export interface PianoRollAutomationOption {
   value: PianoRollAutomationType;
@@ -21,6 +23,8 @@ export const PIANO_ROLL_AUTOMATION_OPTIONS: PianoRollAutomationOption[] = [
   { value: 'cc-7', labelKey: 'pianoRoll.automationType.cc7', interpolationMode: 'linear' },
   { value: 'cc-11', labelKey: 'pianoRoll.automationType.cc11', interpolationMode: 'linear' },
   { value: 'cc-64', labelKey: 'pianoRoll.automationType.cc64', interpolationMode: 'step' },
+  { value: 'channel-aftertouch', labelKey: 'pianoRoll.automationType.channelAftertouch', interpolationMode: 'linear' },
+  { value: 'poly-aftertouch', labelKey: 'pianoRoll.automationType.polyAftertouch', interpolationMode: 'linear' },
 ];
 
 export function getTranslatedAutomationOptions(
@@ -60,4 +64,13 @@ export function getControllerNumberForAutomationType(type: PianoRollAutomationTy
 
 export function getAutomationInterpolationMode(type: PianoRollAutomationType): 'linear' | 'step' {
   return PIANO_ROLL_AUTOMATION_OPTIONS.find(option => option.value === type)?.interpolationMode ?? 'linear';
+}
+
+
+export function getPressureKindForAutomationType(
+  type: PianoRollAutomationType,
+): 'channel' | 'poly' | null {
+  if (type === 'channel-aftertouch') return 'channel';
+  if (type === 'poly-aftertouch') return 'poly';
+  return null;
 }
