@@ -1066,6 +1066,39 @@ export class KGAudioInterface {
     }
   }
 
+  public setLiveMidiPitchBendRange(trackId: string, semitones: number): void {
+    try {
+      const audioBus = this.trackAudioBuses.get(trackId);
+      if (!audioBus) {
+        console.warn(`No audio bus found for track ${trackId}`);
+        return;
+      }
+
+      audioBus.setLiveMidiPitchBendRange(semitones);
+    } catch (error) {
+      console.error(`Error setting live MIDI bend range for track ${trackId}:`, error);
+    }
+  }
+
+  public setLiveMidiVibrato(
+    trackId: string,
+    normalizedDepth: number,
+    maxSemitones: number = 0.35,
+    rateHz: number = 5.5,
+  ): void {
+    try {
+      const audioBus = this.trackAudioBuses.get(trackId);
+      if (!audioBus) {
+        console.warn(`No audio bus found for track ${trackId}`);
+        return;
+      }
+
+      audioBus.setLiveMidiVibrato(normalizedDepth, maxSemitones, rateHz);
+    } catch (error) {
+      console.error(`Error setting live MIDI vibrato for track ${trackId}:`, error);
+    }
+  }
+
   public setLiveMidiExpression(trackId: string, normalizedValue: number): void {
     try {
       const audioBus = this.trackAudioBuses.get(trackId);
