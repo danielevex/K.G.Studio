@@ -495,6 +495,18 @@ Zustand is used for state management with a primary store, complemented by singl
 
 ## Features To Be Implemented
 
+0. **Live Performance / Virtual Instruments**:
+   - Dedicated LIVE mode for instrument tracks
+   - Physical MIDI keyboard/controller input with device selection and MIDI learn
+   - Expressive recording of notes, velocity, pitch bend, CC, aftertouch, sustain and articulations
+   - Guitar Performance Engine with mono-lead mode, legato, bends, vibrato and articulation handling
+   - Retrospective MIDI capture so an unrecorded improvisation can be recovered
+   - Backend-neutral Instrument Adapter layer (SFZ/sfizz, external DAW/plugin host, future native VST3)
+   - Modular amp/cab/effects chains and portable performance/tone presets
+   - Artist-inspired lead-guitar preset family, starting with editable Gilmour-style tones
+   - Bionic / Music Director tools for setup, mapping, arming, preset selection and take management
+   - Full specification: [LIVE_PERFORMANCE_VIRTUAL_GUITAR.md](./LIVE_PERFORMANCE_VIRTUAL_GUITAR.md)
+
 1. **Audio Engine Enhancement**:
    - Audio recording capabilities  
    - MIDI input/output support
@@ -590,11 +602,12 @@ Zustand is used for state management with a primary store, complemented by singl
 
 ## Current Limitations
 
-1. Limited keyboard shortcuts
-2. Limited note editing capabilities (no velocity editing)
-3. Export functionality UI only (no actual export implementation)
-4. No audio recording capabilities yet
-5. Limited audio effects and processing
-6. No project browser UI (projects load/save by typing names)
+1. Live MIDI controller input and expressive performance recording are not implemented yet; architecture is defined in the Live Performance module.
+2. Limited keyboard shortcuts
+3. Limited note editing capabilities (no velocity editing)
+4. Export functionality UI only (no actual export implementation)
+5. No audio recording capabilities yet
+6. Limited audio effects and processing
+7. No project browser UI (projects load/save by typing names)
 
 This document serves as a high-level overview of the KGStudio project, its architecture, current implementation, and future development plans. It should be updated as the project evolves to reflect the current state and goals.
