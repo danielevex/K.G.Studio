@@ -103,6 +103,11 @@ interface AppConfig {
     playback_delay: number;
     recording_offset: number;
   };
+  performance: {
+    profile_id: string;
+    guitar_bend_range_semitones: number;
+    guitar_vibrato_smoothing_ms: number;
+  };
   templates: {
     custom_instructions: string;
   };
@@ -303,6 +308,11 @@ export class ConfigManager {
           output_device_id: 'default',
           playback_delay: 0.2,
           recording_offset: 0
+        },
+        performance: {
+          profile_id: 'off',
+          guitar_bend_range_semitones: 2,
+          guitar_vibrato_smoothing_ms: 45
         },
         templates: {
           custom_instructions: ''
