@@ -942,15 +942,15 @@ export class KGMidiInput {
 
   public setPerformanceProfile(profileId: string): void {
     const config = ConfigManager.instance();
-    const bendRange = Number(config.get('performance.guitar_bend_range_semitones') ?? 2);
-    const smoothingMs = Number(config.get('performance.guitar_vibrato_smoothing_ms') ?? 45);
-    this.applyPerformanceProfile(profileId, {
-      bendRangeSemitones: bendRange,
-      vibratoSmoothingMs: smoothingMs,
-    });
+    this.applyPerformanceProfile(profileId);
 
     if (config.getIsInitialized()) {
+      const settings = this.guitarPerformanceEngine?.getSettings();
       void config.set('performance.profile_id', this.performanceProfileId);
+      if (settings) {
+        void config.set('performance.guitar_bend_range_semitones', settings.bendRangeSemitones);
+        void config.set('performance.guitar_vibrato_smoothing_ms', settings.vibratoSmoothingMs);
+      }
     }
   }
 
@@ -1004,6 +1004,16 @@ export class KGMidiInput {
     const cutoff = latestTimestamp - (safeDuration * 1000);
     return this.retrospectiveBuffer
       .filter(message => message.timestampMs >= cutoff)
+      .filter(message => {
+        if (
+          (message.kind === 'note-on' || message.kind === 'note-off')
+          && message.note !== undefined
+          && this.guitarPerformanceEngine?.isKeyswitchNote(message.note)
+        ) {
+          return false;
+        }
+        return true;
+      })
       .map(message => ({ ...message }));
   }
 
