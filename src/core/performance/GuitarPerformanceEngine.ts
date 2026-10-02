@@ -147,6 +147,10 @@ export class GuitarPerformanceEngine {
     return [];
   }
 
+  public isKeyswitchNote(note: number): boolean {
+    return this.resolveKeyswitchArticulation(note) !== null;
+  }
+
   public getSnapshot(): GuitarPerformanceSnapshot {
     return {
       profileId: this.profile.id,
