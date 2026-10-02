@@ -39,6 +39,14 @@ export type PerformanceEventKind =
   | "articulation"
   | "parameter";
 
+export type GuitarTransition =
+  | "pick"
+  | "legato"
+  | "hammer-on"
+  | "pull-off"
+  | "slide-up"
+  | "slide-down";
+
 export interface PerformanceEvent {
   kind: PerformanceEventKind;
   timestampMs: number;
@@ -48,6 +56,10 @@ export interface PerformanceEvent {
   value?: number;
   articulationId?: string;
   parameterId?: string;
+  normalizedValue?: number;
+  bendSemitones?: number;
+  transition?: GuitarTransition;
+  retrigger?: boolean;
   sourceMessage?: LiveMidiMessage;
 }
 
@@ -101,6 +113,10 @@ export interface GuitarPerformanceSettings {
   slideDetectionEnabled: boolean;
   hammerPullDetectionEnabled: boolean;
   vibratoSmoothingMs: number;
+  vibratoMaxSemitones?: number;
+  vibratoRateHz?: number;
+  hammerPullMaxIntervalSemitones?: number;
+  slideMaxIntervalSemitones?: number;
   retriggerPolicy: "always" | "legato-aware" | "backend";
   preserveHumanTiming: boolean;
 }
@@ -212,4 +228,18 @@ export interface RetrospectiveMidiBufferConfig {
   enabled: boolean;
   durationSeconds: number;
   includeSystemRealtimeMessages?: boolean;
+}
+
+
+export interface GuitarPerformanceSnapshot {
+  profileId: string;
+  mode: "mono-lead" | "poly";
+  activeNote: number | null;
+  heldNotes: number[];
+  bendSemitones: number;
+  vibrato: number;
+  expression: number;
+  sustain: boolean;
+  activeArticulationId: string;
+  lastTransition: GuitarTransition | null;
 }
