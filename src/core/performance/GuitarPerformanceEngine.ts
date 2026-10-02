@@ -200,7 +200,6 @@ export class GuitarPerformanceEngine {
     const transition = this.resolveTransition(previousNote, note);
     this.activeNote = note;
     this.lastTransition = transition;
-    this.activeArticulationId = transition;
 
     return [
       this.articulationEvent(message, transition),
@@ -242,7 +241,6 @@ export class GuitarPerformanceEngine {
     const transition = this.resolveTransition(note, fallback.note);
     this.activeNote = fallback.note;
     this.lastTransition = transition;
-    this.activeArticulationId = transition;
 
     return [
       this.articulationEvent(message, transition),
