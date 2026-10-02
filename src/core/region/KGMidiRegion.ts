@@ -3,6 +3,7 @@ import { KGRegion } from './KGRegion';
 import { KGMidiNote } from '../midi/KGMidiNote';
 import { KGMidiPitchBend } from '../midi/KGMidiPitchBend';
 import { KGMidiControllerEvent } from '../midi/KGMidiControllerEvent';
+import { KGMidiPressureEvent, type MidiPressureKind } from '../midi/KGMidiPressureEvent';
 import { WithDefault } from '../../types/projectTypes';
 import type { MidiTransposeSettings } from '../track/KGMidiTrack';
 
@@ -44,6 +45,11 @@ export class KGMidiRegion extends KGRegion {
   @Expose()
   @Type(() => KGMidiControllerEvent)
   protected controllerEventsByType: KGMidiControllerEvent[][] = createEmptyControllerBuckets();
+
+  @Expose()
+  @Type(() => KGMidiPressureEvent)
+  @WithDefault([])
+  protected pressureEvents: KGMidiPressureEvent[] = [];
 
   constructor(id: string, trackId: string, trackIndex: number, name: string, startFromBeat: number = 0, length: number = 0) {
     super(id, trackId, trackIndex, name, startFromBeat, length);
@@ -128,6 +134,28 @@ export class KGMidiRegion extends KGRegion {
     return this.getControllerEventsByType().flatMap((events, controller) => (
       events.map(event => ({ controller, event }))
     ));
+  }
+
+  public getPressureEvents(kind?: MidiPressureKind): KGMidiPressureEvent[] {
+    if (!Array.isArray(this.pressureEvents)) {
+      this.pressureEvents = [];
+    }
+    if (!kind) {
+      return this.pressureEvents;
+    }
+    return this.pressureEvents.filter(event => event.getKind() === kind);
+  }
+
+  public setPressureEvents(events: KGMidiPressureEvent[]): void {
+    this.pressureEvents = Array.isArray(events) ? events : [];
+  }
+
+  public addPressureEvent(event: KGMidiPressureEvent): void {
+    this.getPressureEvents().push(event);
+  }
+
+  public removePressureEvent(pressureEventId: string): void {
+    this.pressureEvents = this.getPressureEvents().filter(event => event.getId() !== pressureEventId);
   }
 
   // Add a single note
