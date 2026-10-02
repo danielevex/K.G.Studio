@@ -158,4 +158,59 @@ describe('KGMidiInput pitch bend', () => {
     expect(audioInterfaceMock.setLiveMidiPitchBend).not.toHaveBeenCalled();
     expect(audioInterfaceMock.setLiveMidiSustain).not.toHaveBeenCalled();
   });
+  it('filters incoming messages by selected MIDI device and channel', () => {
+    const midiInput = KGMidiInput.instance() as unknown as {
+      handleMIDIMessage: (...args: [TestMidiEvent, string?]) => void;
+      connectedInputs: Map<string, MIDIInput>;
+      selectInput: (inputId: string | null) => void;
+      setChannelFilter: (channel: number | null) => void;
+    };
+
+    midiInput.connectedInputs.set('keyboard-a', { id: 'keyboard-a' } as MIDIInput);
+    midiInput.connectedInputs.set('keyboard-b', { id: 'keyboard-b' } as MIDIInput);
+    midiInput.selectInput('keyboard-a');
+    midiInput.setChannelFilter(1);
+
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x91, 60, 100]) }, 'keyboard-b');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x90, 60, 100]) }, 'keyboard-a');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x91, 61, 100]) }, 'keyboard-a');
+
+    expect(audioInterfaceMock.triggerLiveMidiNoteAttack).toHaveBeenCalledTimes(1);
+    expect(audioInterfaceMock.triggerLiveMidiNoteAttack).toHaveBeenCalledWith('1', 61, 100);
+  });
+
+  it('emits expressive monitor events and learns the next moved control', () => {
+    const midiInput = KGMidiInput.instance() as unknown as {
+      handleMIDIMessage: (...args: [TestMidiEvent, string?]) => void;
+      addLiveMidiMessageListener: (listener: (message: { kind: string; value?: number }) => void) => void;
+      beginMidiLearn: (listener: (result: { kind: string; controller?: number; channel: number }) => void) => void;
+      getMidiLearnArmed: () => boolean;
+    };
+    const monitor = vi.fn();
+    const learned = vi.fn();
+
+    midiInput.addLiveMidiMessageListener(monitor);
+    midiInput.beginMidiLearn(learned);
+
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0xb0, 74, 99]) }, 'keyboard-a');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0xd0, 80]) }, 'keyboard-a');
+
+    expect(learned).toHaveBeenCalledWith({
+      kind: 'cc',
+      deviceId: 'keyboard-a',
+      channel: 0,
+      controller: 74,
+    });
+    expect(midiInput.getMidiLearnArmed()).toBe(false);
+    expect(monitor).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'control-change',
+      controller: 74,
+      value: 99,
+    }));
+    expect(monitor).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'channel-pressure',
+      value: 80,
+    }));
+  });
+
 });
