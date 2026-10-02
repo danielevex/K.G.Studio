@@ -23,8 +23,7 @@ interface LiveMidiSource {
  * Each instance manages a single track's audio processing chain
  */
 export class KGAudioBus {
-  // Fixed at +/-2 semitones for now. Future work: make this user-configurable
-  // or honor MIDI RPN 0,0 (Pitch Bend Sensitivity).
+  // Default MIDI pitch-wheel range. LP3 can override this per performance profile.
   public static readonly LIVE_MIDI_PITCH_BEND_RANGE_SEMITONES = 2;
   private static readonly LIVE_MIDI_NOTE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 
@@ -42,6 +41,13 @@ export class KGAudioBus {
   private muted: boolean;
   private solo: boolean;
   private liveMidiPitchBend: number = 0;
+  private liveMidiPitchBendRangeSemitones: number = KGAudioBus.LIVE_MIDI_PITCH_BEND_RANGE_SEMITONES;
+  private liveMidiVibratoDepth: number = 0;
+  private liveMidiVibratoMaxSemitones: number = 0.35;
+  private liveMidiVibratoRateHz: number = 5.5;
+  private liveMidiVibratoOffsetSemitones: number = 0;
+  private liveMidiVibratoPhase: number = 0;
+  private liveMidiVibratoTimer: ReturnType<typeof setInterval> | null = null;
   private liveExpressionNormalized: number = 1;
   private sustainPedalDown: boolean = false;
   private liveMidiSources: Map<number, LiveMidiSource[]> = new Map();
@@ -240,14 +246,48 @@ export class KGAudioBus {
     }
   }
 
+  public setLiveMidiPitchBendRange(semitones: number): void {
+    this.liveMidiPitchBendRangeSemitones = Math.max(0, Math.min(24, semitones));
+    this.updateLiveMidiPlaybackRates();
+  }
+
+  public getLiveMidiPitchBendRange(): number {
+    return this.liveMidiPitchBendRangeSemitones;
+  }
+
   public setLiveMidiPitchBend(normalizedBend: number): void {
     this.liveMidiPitchBend = Math.max(-1, Math.min(1, normalizedBend));
+    this.updateLiveMidiPlaybackRates();
+  }
 
-    for (const activeSources of this.liveMidiSources.values()) {
-      activeSources.forEach(({ source, basePlaybackRate }) => {
-        this.setPlaybackRateValue(source, this.applyPitchBendToPlaybackRate(basePlaybackRate));
-      });
+  public setLiveMidiVibrato(
+    normalizedDepth: number,
+    maxSemitones: number = 0.35,
+    rateHz: number = 5.5,
+  ): void {
+    this.liveMidiVibratoDepth = Math.max(0, Math.min(1, normalizedDepth));
+    this.liveMidiVibratoMaxSemitones = Math.max(0, Math.min(2, maxSemitones));
+    this.liveMidiVibratoRateHz = Math.max(0.1, Math.min(12, rateHz));
+
+    if (this.liveMidiVibratoDepth <= 0.0001) {
+      this.stopLiveMidiVibrato();
+      return;
     }
+
+    if (this.liveMidiVibratoTimer !== null) {
+      return;
+    }
+
+    const intervalMs = 16;
+    this.liveMidiVibratoTimer = setInterval(() => {
+      const phaseStep = (Math.PI * 2 * this.liveMidiVibratoRateHz * intervalMs) / 1000;
+      this.liveMidiVibratoPhase = (this.liveMidiVibratoPhase + phaseStep) % (Math.PI * 2);
+      this.liveMidiVibratoOffsetSemitones =
+        Math.sin(this.liveMidiVibratoPhase)
+        * this.liveMidiVibratoDepth
+        * this.liveMidiVibratoMaxSemitones;
+      this.updateLiveMidiPlaybackRates();
+    }, intervalMs);
   }
 
   public scheduleLiveMidiPitchBend(normalizedBend: number, time: number): void {
@@ -316,6 +356,8 @@ export class KGAudioBus {
       });
       this.liveMidiSources.clear();
       this.resetLiveMidiPitchBend();
+      this.stopLiveMidiVibrato();
+      this.liveMidiPitchBendRangeSemitones = KGAudioBus.LIVE_MIDI_PITCH_BEND_RANGE_SEMITONES;
       this.liveExpressionNormalized = 1;
       this.sustainPedalDown = false;
     } catch (error) {
@@ -645,7 +687,28 @@ export class KGAudioBus {
   }
 
   private applyPitchBendToPlaybackRate(basePlaybackRate: number): number {
-    return KGAudioBus.applyNormalizedPitchBendToPlaybackRate(basePlaybackRate, this.liveMidiPitchBend);
+    const bendSemitones = (this.liveMidiPitchBend * this.liveMidiPitchBendRangeSemitones)
+      + this.liveMidiVibratoOffsetSemitones;
+    return basePlaybackRate * Math.pow(2, bendSemitones / 12);
+  }
+
+  private updateLiveMidiPlaybackRates(): void {
+    for (const activeSources of this.liveMidiSources.values()) {
+      activeSources.forEach(({ source, basePlaybackRate }) => {
+        this.setPlaybackRateValue(source, this.applyPitchBendToPlaybackRate(basePlaybackRate));
+      });
+    }
+  }
+
+  private stopLiveMidiVibrato(): void {
+    if (this.liveMidiVibratoTimer !== null) {
+      clearInterval(this.liveMidiVibratoTimer);
+      this.liveMidiVibratoTimer = null;
+    }
+    this.liveMidiVibratoDepth = 0;
+    this.liveMidiVibratoOffsetSemitones = 0;
+    this.liveMidiVibratoPhase = 0;
+    this.updateLiveMidiPlaybackRates();
   }
 
   public static findClosestBufferedPitch(
