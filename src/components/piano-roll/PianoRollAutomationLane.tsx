@@ -288,9 +288,15 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
       : clampMidiControllerValue(Math.round(rawValue));
   };
 
-  const getPointLabel = (value: number): string => (
-    automationType === 'pitch-bend' ? `${midiPitchBendToSignedValue(value)}` : `${value}`
-  );
+  const getPointLabel = (point: AutomationPoint, value: number): string => {
+    if (automationType === 'pitch-bend') {
+      return `${midiPitchBendToSignedValue(value)}`;
+    }
+    if (point.kind === 'pressure' && point.pressureKind === 'poly' && point.note !== null && point.note !== undefined) {
+      return `${point.note}:${value}`;
+    }
+    return `${value}`;
+  };
 
   const renderedPoints = points.map(point => {
     const preview = previewPoints[point.id];
@@ -301,7 +307,7 @@ const PianoRollAutomationLane: React.FC<PianoRollAutomationLaneProps> = ({
       ...point,
       absoluteBeat,
       value,
-      label: getPointLabel(value),
+      label: getPointLabel(point, value),
       x: absoluteBeat * beatWidth + keyWidth,
       y: toY(value),
       isSelected: selectedPointIdSet.has(point.id),
