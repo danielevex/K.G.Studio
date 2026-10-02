@@ -92,11 +92,13 @@ export { SplitSelectedNotesCommand } from './note/SplitSelectedNotesCommand';
 export { UpdateNotePropertiesCommand } from './note/UpdateNotePropertiesCommand';
 export { UpdatePitchBendPropertiesCommand } from './note/UpdatePitchBendPropertiesCommand';
 export { UpdateControllerEventPropertiesCommand } from './note/UpdateControllerEventPropertiesCommand';
+export { UpdatePressureEventPropertiesCommand } from './note/UpdatePressureEventPropertiesCommand';
 export {
   CreateMidiEventsCommand,
   type PitchBendCreationData,
   type NoteCreationData,
-  type ControllerEventCreationData
+  type ControllerEventCreationData,
+  type PressureEventCreationData
 } from './note/CreateMidiEventsCommand';
 
 // Project commands
