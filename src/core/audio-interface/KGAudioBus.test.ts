@@ -164,4 +164,37 @@ describe('KGAudioBus live MIDI pitch bend', () => {
     audioBus.applyEffectiveVolume(false);
     expect(sampler.volume.value).toBe(-Infinity);
   });
+  it('honors a configurable live MIDI bend range', async () => {
+    const audioBus = await KGAudioBus.create('acoustic_grand_piano');
+
+    audioBus.triggerLiveMidiAttack(60, 0, 1);
+    const source = MockBufferSource.mock.results[0].value;
+
+    audioBus.setLiveMidiPitchBendRange(4);
+    audioBus.setLiveMidiPitchBend(1);
+
+    expect(audioBus.getLiveMidiPitchBendRange()).toBe(4);
+    expect(source.playbackRate.value).toBeCloseTo(Math.pow(2, 4 / 12), 5);
+  });
+
+  it('applies and resets periodic live vibrato around the current bend', async () => {
+    vi.useFakeTimers();
+    try {
+      const audioBus = await KGAudioBus.create('acoustic_grand_piano');
+
+      audioBus.triggerLiveMidiAttack(60, 0, 1);
+      const source = MockBufferSource.mock.results[0].value;
+
+      audioBus.setLiveMidiVibrato(1, 0.5, 5);
+      vi.advanceTimersByTime(16);
+
+      expect(source.playbackRate.value).not.toBeCloseTo(1, 5);
+
+      audioBus.setLiveMidiVibrato(0);
+      expect(source.playbackRate.value).toBeCloseTo(1, 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
 });
