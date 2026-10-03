@@ -374,11 +374,27 @@ Retrospective capture aligns the newest buffered event with the current transpor
 
 The current SoundFont/sampler backend can monitor LP3 performances immediately. Its note transitions still retrigger samples because backend-specific true legato, dedicated slide samples and articulation switching belong to LP4 instrument adapters. The LP3 event stream already carries the semantic distinction so those future backends do not require rewriting recorded performances.
 
-### LP4 — High-quality instrument backend
+### LP4 — High-quality instrument backend — IMPLEMENTED
 
-- SFZ/sfizz guitar path where suitable;
-- external DAW/plugin adapter for Kontakt/VST3-class instruments;
-- backend capability discovery.
+- stable `InstrumentPerformanceAdapter` contract separated from Web MIDI and vendor APIs;
+- backend capability discovery with availability and latency-mode metadata;
+- selectable **K.G.Studio Internal Sampler** fallback;
+- selectable **External MIDI / DAW** high-quality backend;
+- Web MIDI output discovery, hot-plug refresh, persisted output and MIDI-channel routing;
+- semantic LP3 event routing to an external DAW, Kontakt-class sampler, sfizz VST3, MIDI hardware or another host;
+- automatic MIDI RPN 0,0 Pitch Bend Sensitivity configuration;
+- correct 14-bit pitch bend output;
+- CC1 vibrato, CC11 expression and CC64 sustain output;
+- channel pressure and polyphonic aftertouch output;
+- semantic articulation-to-keyswitch/CC mapping with a backend-neutral default map;
+- legato note ordering for hammer-on, pull-off and slide transitions: new note-on is sent before the previous note-off;
+- adapter panic/reset with All Notes Off and All Sound Off;
+- external backend routing bypasses the internal sampler to prevent doubled monitoring;
+- LP2 raw recording remains independent from the selected renderer;
+- dedicated architecture/setup notes in [LP4_INSTRUMENT_BACKENDS.md](./LP4_INSTRUMENT_BACKENDS.md);
+- automated tests cover capability discovery, pitch-bend RPN, expressive MIDI, keyswitches, legato ordering, panic and K.G.Studio external routing.
+
+For SFZ, the production-ready path in the current web-only repository is sfizz hosted externally (for example as VST3 in a DAW) and driven through the LP4 MIDI adapter. Direct in-process sfizz remains compatible with the adapter architecture but is intentionally deferred until K.G.Studio has the native desktop boundary required for robust filesystem/sample-library access.
 
 ### LP5 — Tone Engine
 
