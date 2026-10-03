@@ -77,12 +77,16 @@ describe('ExternalMidiInstrumentAdapter', () => {
       event({ kind: 'vibrato', normalizedValue: 0.5 }),
       event({ kind: 'expression', normalizedValue: 0.25 }),
       event({ kind: 'sustain', value: 1 }),
+      event({ kind: 'pressure', pressureKind: 'channel', value: 88 }),
+      event({ kind: 'pressure', pressureKind: 'poly', note: 67, value: 77 }),
     ]);
 
     expect(output.send).toHaveBeenCalledWith([0xe0, 0x7f, 0x7f], undefined);
     expect(output.send).toHaveBeenCalledWith([0xb0, 1, 64], undefined);
     expect(output.send).toHaveBeenCalledWith([0xb0, 11, 32], undefined);
     expect(output.send).toHaveBeenCalledWith([0xb0, 64, 127], undefined);
+    expect(output.send).toHaveBeenCalledWith([0xd0, 88], undefined);
+    expect(output.send).toHaveBeenCalledWith([0xa0, 67, 77], undefined);
   });
 
   it('translates persistent articulations to keyswitches', () => {
