@@ -353,6 +353,7 @@ Retrospective capture aligns the newest buffered event with the current transpor
 ### LP3 — Guitar Performance Engine — IMPLEMENTED
 
 - vendor-neutral `GuitarPerformanceEngine` that converts raw MIDI into semantic `PerformanceEvent` data;
+- subscribable semantic performance stream ready for LP4 instrument adapters without coupling them to Web MIDI;
 - monophonic lead mode with last-note priority;
 - polyphonic engine mode available for backend/profile use;
 - configurable pitch-wheel bend range;
