@@ -18,6 +18,7 @@ export interface LiveMidiNoteActivityEvent {
 
 type LiveNoteActivityListener = (...args: [LiveMidiNoteActivityEvent]) => void;
 type LiveMidiMessageListener = (...args: [LiveMidiMessage]) => void;
+type PerformanceEventListener = (...args: [PerformanceEvent]) => void;
 type MidiStateListener = () => void;
 
 export interface MidiInputDescriptor {
@@ -62,6 +63,7 @@ export class KGMidiInput {
   private stateVersion = 0;
   private stateListeners: Set<MidiStateListener> = new Set();
   private liveMidiMessageListeners: Set<LiveMidiMessageListener> = new Set();
+  private performanceEventListeners: Set<PerformanceEventListener> = new Set();
   private midiLearnListener: ((result: MidiLearnResult) => void) | null = null;
   private midiLearnArmed = false;
   private retrospectiveBuffer: LiveMidiMessage[] = [];
@@ -601,6 +603,7 @@ export class KGMidiInput {
     }
 
     const events = engine.process(message);
+    this.emitPerformanceEvents(events);
     this.routePerformanceEvents(events);
 
     const snapshot = engine.getSnapshot();
@@ -612,6 +615,18 @@ export class KGMidiInput {
     }
 
     return true;
+  }
+
+  private emitPerformanceEvents(events: PerformanceEvent[]): void {
+    for (const event of events) {
+      for (const listener of this.performanceEventListeners) {
+        try {
+          listener(event);
+        } catch {
+          // Adapter/monitor listeners must never interrupt low-latency MIDI routing.
+        }
+      }
+    }
   }
 
   private routePerformanceEvents(events: PerformanceEvent[]): void {
@@ -803,6 +818,7 @@ export class KGMidiInput {
       this.sustainPolarityInverted = null;
       this.liveNoteActivityListeners = [];
       this.liveMidiMessageListeners.clear();
+      this.performanceEventListeners.clear();
       this.stateListeners.clear();
       this.selectedInputId = null;
       this.channelFilter = null;
@@ -854,6 +870,14 @@ export class KGMidiInput {
 
   public removeLiveMidiMessageListener(listener: LiveMidiMessageListener): void {
     this.liveMidiMessageListeners.delete(listener);
+  }
+
+  public addPerformanceEventListener(listener: PerformanceEventListener): void {
+    this.performanceEventListeners.add(listener);
+  }
+
+  public removePerformanceEventListener(listener: PerformanceEventListener): void {
+    this.performanceEventListeners.delete(listener);
   }
 
   public subscribeState(listener: MidiStateListener): () => void {
