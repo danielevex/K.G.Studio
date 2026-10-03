@@ -176,6 +176,13 @@ export class ExternalMidiInstrumentAdapter implements InstrumentPerformanceAdapt
       this.sendCc(11, clamp7((event.normalizedValue ?? event.value ?? 1) * 127));
     } else if (event.kind === 'sustain') {
       this.sendCc(64, (event.value ?? 0) >= 0.5 ? 127 : 0);
+    } else if (event.kind === 'pressure') {
+      const value = clamp7(event.value ?? ((event.normalizedValue ?? 0) * 127));
+      if (event.pressureKind === 'poly' && event.note !== undefined) {
+        this.send([0xa0 | this.channel, clamp7(event.note), value]);
+      } else {
+        this.send([0xd0 | this.channel, value]);
+      }
     }
   }
 
