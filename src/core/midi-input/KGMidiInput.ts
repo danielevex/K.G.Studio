@@ -4,6 +4,7 @@ import { KGMidiTrack } from '../track/KGMidiTrack';
 import { ConfigManager } from '../config/ConfigManager';
 import { GuitarPerformanceEngine } from '../performance/GuitarPerformanceEngine';
 import { GUITAR_PERFORMANCE_PROFILES, getGuitarPerformanceProfile } from '../performance/GuitarPerformanceProfiles';
+import { GILMOUR_INSPIRED_PRESETS, getPerformancePreset } from '../performance/PerformancePresets';
 import {
   DEFAULT_GUITAR_ARTICULATION_MIDI_MAP,
   ExternalMidiInstrumentAdapter,
@@ -16,6 +17,8 @@ import type {
   PerformanceEvent,
   PerformanceProfile,
   InstrumentAdapterDescriptor,
+  PerformancePreset,
+  SignalChainBlock,
 } from '../performance/LivePerformanceTypes';
 
 export interface LiveMidiNoteActivityEvent {
@@ -807,20 +810,20 @@ export class KGMidiInput {
     }
   }
 
-  private getSelectedMidiTrackId(): string | null {
+  private getSelectedMidiTrack(): KGMidiTrack | null {
     const { selectedTrackId, tracks } = useProjectStore.getState();
-    if (!selectedTrackId) {
-      console.log('No track selected - MIDI input ignored');
-      return null;
-    }
-
+    if (!selectedTrackId) return null;
     const selectedTrack = tracks.find((track) => track.getId().toString() === selectedTrackId);
-    if (!(selectedTrack instanceof KGMidiTrack)) {
-      console.log(`Selected track ${selectedTrackId} is not a MIDI track - MIDI input ignored`);
+    return selectedTrack instanceof KGMidiTrack ? selectedTrack : null;
+  }
+
+  private getSelectedMidiTrackId(): string | null {
+    const track = this.getSelectedMidiTrack();
+    if (!track) {
+      console.log('No MIDI track selected - MIDI input ignored');
       return null;
     }
-
-    return selectedTrackId;
+    return track.getId().toString();
   }
 
   private consumeLatchedTrackIdForPitch(pitch: number): string | null {
@@ -1026,6 +1029,113 @@ export class KGMidiInput {
 
   public getPerformanceProfileId(): string {
     return this.performanceProfileId;
+  }
+
+  public getTonePresets(): PerformancePreset[] {
+    return GILMOUR_INSPIRED_PRESETS.map(preset => ({
+      ...preset,
+      mappings: preset.mappings.map(mapping => ({ ...mapping })),
+      articulationIds: [...preset.articulationIds],
+      signalChain: preset.signalChain.map(block => ({ ...block, parameters: { ...block.parameters } })),
+      backendRequirements: preset.backendRequirements
+        ? {
+            ...preset.backendRequirements,
+            preferredBackends: preset.backendRequirements.preferredBackends
+              ? [...preset.backendRequirements.preferredBackends]
+              : undefined,
+            requiredCapabilities: preset.backendRequirements.requiredCapabilities
+              ? [...preset.backendRequirements.requiredCapabilities]
+              : undefined,
+          }
+        : undefined,
+      metadata: preset.metadata ? { ...preset.metadata } : undefined,
+    }));
+  }
+
+  public getSelectedTonePresetId(): string {
+    return this.getSelectedMidiTrack()?.getTonePresetId() ?? 'off';
+  }
+
+  public getSelectedToneSignalChain(): SignalChainBlock[] {
+    return this.getSelectedMidiTrack()?.getToneSignalChain() ?? [];
+  }
+
+  public setTonePreset(presetId: string): void {
+    const track = this.getSelectedMidiTrack();
+    if (!track) return;
+
+    const audio = KGAudioInterface.instance();
+    if (presetId === 'off') {
+      track.setTonePresetId('off');
+      track.setToneSignalChain([]);
+      audio.applyTrackToneSignalChain(track.getId().toString(), []);
+    } else {
+      const preset = getPerformancePreset(presetId);
+      if (!preset) return;
+      const chain = preset.signalChain.map(block => ({ ...block, parameters: { ...block.parameters } }));
+      track.setTonePresetId(preset.id);
+      track.setToneSignalChain(chain);
+      audio.applyTrackToneSignalChain(track.getId().toString(), chain);
+
+      if (preset.instrumentProfileId && preset.instrumentProfileId !== this.performanceProfileId) {
+        this.setPerformanceProfile(preset.instrumentProfileId);
+      }
+    }
+
+    void useProjectStore.getState().updateTrack(track);
+    this.notifyStateChange();
+  }
+
+  public setToneBlockEnabled(blockId: string, enabled: boolean): void {
+    const track = this.getSelectedMidiTrack();
+    if (!track) return;
+    const chain = track.getToneSignalChain();
+    const block = chain.find(candidate => candidate.id === blockId);
+    if (!block) return;
+    block.enabled = enabled;
+    track.setToneSignalChain(chain);
+    KGAudioInterface.instance().setTrackToneBlockEnabled(track.getId().toString(), blockId, enabled);
+    void useProjectStore.getState().updateTrack(track);
+    this.notifyStateChange();
+  }
+
+  public setToneBlockParameter(
+    blockId: string,
+    parameterId: string,
+    value: number | string | boolean,
+  ): void {
+    const track = this.getSelectedMidiTrack();
+    if (!track) return;
+    const chain = track.getToneSignalChain();
+    const block = chain.find(candidate => candidate.id === blockId);
+    if (!block) return;
+    block.parameters[parameterId] = value;
+    track.setToneSignalChain(chain);
+    KGAudioInterface.instance().setTrackToneBlockParameter(
+      track.getId().toString(),
+      blockId,
+      parameterId,
+      value,
+    );
+    void useProjectStore.getState().updateTrack(track);
+    this.notifyStateChange();
+  }
+
+  public automateToneBlockParameter(
+    blockId: string,
+    parameterId: string,
+    value: number,
+    time?: number,
+  ): boolean {
+    const track = this.getSelectedMidiTrack();
+    if (!track) return false;
+    return KGAudioInterface.instance().automateTrackToneBlockParameter(
+      track.getId().toString(),
+      blockId,
+      parameterId,
+      value,
+      time,
+    );
   }
 
   public getInstrumentBackendId(): 'internal-sampler' | 'external-midi' {
