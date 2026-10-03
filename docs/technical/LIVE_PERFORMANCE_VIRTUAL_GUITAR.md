@@ -396,12 +396,23 @@ The current SoundFont/sampler backend can monitor LP3 performances immediately. 
 
 For SFZ, the production-ready path in the current web-only repository is sfizz hosted externally (for example as VST3 in a DAW) and driven through the LP4 MIDI adapter. Direct in-process sfizz remains compatible with the adapter architecture but is intentionally deferred until K.G.Studio has the native desktop boundary required for robust filesystem/sample-library access.
 
-### LP5 — Tone Engine
+### LP5 — Tone Engine — IMPLEMENTED
 
-- modular effect-chain schema;
-- amp/cab/effects adapters;
-- artist-inspired presets;
-- per-preset parameter automation.
+- backend-neutral editable signal-chain schema rendered internally through `ToneEffectChain`;
+- shared tone path for normal MIDI playback and LP3 live performance monitoring;
+- compressor, boost, overdrive, fuzz, distortion, amp voicing, cabinet voicing, EQ, modulation, delay, reverb and volume blocks;
+- per-block bypass;
+- editable block parameters from the Live MIDI panel;
+- time-addressable backend parameter-automation API for compatible effect parameters;
+- track-level preset and edited-chain persistence through project structure V19;
+- tone state preserved when duplicating MIDI tracks and changing instruments;
+- **Shine Lead**, **Comfort Lead** and **Time Lead** editable Artist-Inspired / Gilmour-style presets;
+- explicit **Internal Tone Engine Active** vs **External Host Recipe** behavior;
+- external-backend presets remain portable recipe data until audio return/native plugin hosting is available;
+- automated tests cover chain construction, bypass, editing, automation, track persistence and migration;
+- detailed architecture in [LP5_TONE_ENGINE.md](./LP5_TONE_ENGINE.md).
+
+The current internal amp/cabinet stages are lightweight Tone.js/WebAudio voicings rather than physical-model or IR-based emulations. LP6/native plugin hosting can replace individual logical blocks with higher-fidelity VST3/native implementations without changing the saved preset model.
 
 ### LP6 — Native desktop plugin hosting
 
