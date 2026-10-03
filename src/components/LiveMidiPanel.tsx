@@ -80,6 +80,12 @@ const LiveMidiPanel: React.FC = () => {
   const performanceProfiles = midi.getPerformanceProfiles();
   const performanceSnapshot = midi.getGuitarPerformanceSnapshot();
   const performanceSettings = midi.getGuitarPerformanceSettings();
+  const instrumentBackendId = midi.getInstrumentBackendId();
+  const backendDescriptors = midi.getInstrumentBackendDescriptors();
+  const outputs = midi.getConnectedOutputDescriptors();
+  const selectedOutputId = midi.getSelectedOutputId();
+  const externalMidiChannel = midi.getExternalMidiChannel();
+  const externalMidiReady = midi.getExternalMidiReady();
   const hasAccess = midi.getMIDIAccess() !== null;
   const supported = midi.getIsWebMidiSupported();
 
@@ -210,6 +216,58 @@ const LiveMidiPanel: React.FC = () => {
 
                 {performanceProfileId !== 'off' && performanceSettings && (
                   <>
+                    <label className="live-midi-field">
+                      <span>Backend</span>
+                      <select
+                        value={instrumentBackendId}
+                        onChange={(event) => midi.setInstrumentBackend(event.target.value)}
+                      >
+                        {backendDescriptors.map((backend) => (
+                          <option key={backend.id} value={backend.id}>
+                            {backend.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    {instrumentBackendId === 'external-midi' && (
+                      <div className="live-midi-backend-config">
+                        <label className="live-midi-field">
+                          <span>MIDI out</span>
+                          <select
+                            value={selectedOutputId}
+                            onChange={(event) => midi.selectOutput(event.target.value || null)}
+                          >
+                            <option value="">Select output…</option>
+                            {outputs.map((output) => (
+                              <option key={output.id} value={output.id}>
+                                {output.name}{output.manufacturer ? ` — ${output.manufacturer}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="live-midi-field">
+                          <span>Out channel</span>
+                          <select
+                            value={String(externalMidiChannel)}
+                            onChange={(event) => midi.setExternalMidiChannel(Number(event.target.value))}
+                          >
+                            {Array.from({ length: 16 }, (_, index) => (
+                              <option key={index} value={index}>Channel {index + 1}</option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <div className={`live-midi-backend-health ${externalMidiReady ? 'ready' : 'needs-config'}`}>
+                          <strong>{externalMidiReady ? 'EXTERNAL BACKEND READY' : 'SELECT A MIDI OUTPUT'}</strong>
+                          <small>
+                            Routes LP3 gestures to a DAW, Kontakt, sfizz VST3 or another MIDI instrument.
+                          </small>
+                        </div>
+                      </div>
+                    )}
+
                     <label className="live-midi-field">
                       <span>Bend range</span>
                       <select
