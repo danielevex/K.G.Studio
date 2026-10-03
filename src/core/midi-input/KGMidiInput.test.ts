@@ -347,4 +347,27 @@ describe('KGMidiInput pitch bend', () => {
     expect(midiInput.getRetrospectiveMessages().some(message => message.note === 25)).toBe(false);
   });
 
+  it('publishes the semantic performance stream for future instrument adapters', () => {
+    const midiInput = KGMidiInput.instance() as unknown as {
+      handleMIDIMessage: (...args: [TestMidiEvent, string?]) => void;
+      applyPerformanceProfile: (profileId: string) => void;
+      addPerformanceEventListener: (listener: (event: { kind: string; articulationId?: string; transition?: string }) => void) => void;
+    };
+    const listener = vi.fn();
+
+    midiInput.applyPerformanceProfile('guitar.lead.standard');
+    midiInput.addPerformanceEventListener(listener);
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x90, 60, 100]) }, 'keyboard-a');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x90, 62, 90]) }, 'keyboard-a');
+
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'articulation',
+      articulationId: 'hammer-on',
+    }));
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'note-start',
+      transition: 'hammer-on',
+    }));
+  });
+
 });
