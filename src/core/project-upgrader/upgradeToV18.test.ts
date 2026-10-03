@@ -17,7 +17,7 @@ describe('upgradeToV18', () => {
 
     upgradeProjectToLatest(project);
 
-    expect(project.getProjectStructureVersion()).toBe(18);
+    expect(project.getProjectStructureVersion()).toBe(KGProject.CURRENT_PROJECT_STRUCTURE_VERSION);
     expect(region.getPressureEvents()).toHaveLength(1);
     expect(region.getPressureEvents()[0].getValue()).toBe(88);
     expect(region.getPressureEvents()[0].getKind()).toBe('channel');
@@ -35,6 +35,6 @@ describe('upgradeToV18', () => {
     upgradeProjectToLatest(project);
 
     expect(region.getPressureEvents()).toEqual([]);
-    expect(project.getProjectStructureVersion()).toBe(18);
+    expect(project.getProjectStructureVersion()).toBe(KGProject.CURRENT_PROJECT_STRUCTURE_VERSION);
   });
 });

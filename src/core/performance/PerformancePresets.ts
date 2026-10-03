@@ -14,7 +14,7 @@ export const GILMOUR_INSPIRED_PRESETS: PerformancePreset[] = [
     category: "Artist-Inspired / Gilmour-style",
     description:
       "Expressive neck-oriented Strat-style lead with compression, modulation, long delay and spacious reverb.",
-    instrumentProfileId: "guitar.lead",
+    instrumentProfileId: "guitar.lead.expressive",
     mappings: [
       { id: "bend", source: "pitch-wheel", target: "guitar.bend", min: -2, max: 2 },
       { id: "vibrato", source: "mod-wheel", target: "guitar.vibrato", min: 0, max: 1 },
@@ -89,7 +89,7 @@ export const GILMOUR_INSPIRED_PRESETS: PerformancePreset[] = [
     category: "Artist-Inspired / Gilmour-style",
     description:
       "Sustaining bridge-oriented Strat-style lead with compression, fuzz/drive, loud clean amp platform, delay and reverb.",
-    instrumentProfileId: "guitar.lead",
+    instrumentProfileId: "guitar.lead.expressive",
     mappings: [
       { id: "bend", source: "pitch-wheel", target: "guitar.bend", min: -2, max: 2 },
       { id: "vibrato", source: "mod-wheel", target: "guitar.vibrato", min: 0, max: 1 },
@@ -154,6 +154,81 @@ export const GILMOUR_INSPIRED_PRESETS: PerformancePreset[] = [
     },
     metadata: {
       guitarCharacter: "strat-bridge-oriented",
+      presetFamily: "gilmour-inspired"
+    }
+  },
+  {
+    id: "artist-inspired.gilmour.time-lead",
+    name: "Time Lead",
+    version: 1,
+    category: "Artist-Inspired / Gilmour-style",
+    description:
+      "Articulate Strat-style lead with focused drive, cabinet voicing, restrained modulation, rhythmic delay and roomy reverb.",
+    instrumentProfileId: "guitar.lead.wide-bend",
+    mappings: [
+      { id: "bend", source: "pitch-wheel", target: "guitar.bend", min: -4, max: 4 },
+      { id: "vibrato", source: "mod-wheel", target: "guitar.vibrato", min: 0, max: 1 },
+      { id: "expression", source: "expression", target: "guitar.expression", min: 0, max: 1 },
+      { id: "sustain", source: "sustain-pedal", target: "guitar.sustain", min: 0, max: 1 }
+    ],
+    articulationIds: ["sustain", "legato", "slide", "harmonic"],
+    signalChain: [
+      {
+        id: "compressor",
+        type: "compressor",
+        name: "Lead Compressor",
+        enabled: true,
+        parameters: { amount: 0.44, attack: "fast", release: "medium" }
+      },
+      {
+        id: "overdrive",
+        type: "overdrive",
+        name: "Focused Drive",
+        enabled: true,
+        parameters: { drive: 0.48, tone: 0.62, level: 0.72 }
+      },
+      {
+        id: "amp",
+        type: "amp",
+        name: "British Lead Platform",
+        enabled: true,
+        parameters: { gain: 0.54, presence: 0.64, master: 0.8 }
+      },
+      {
+        id: "cabinet",
+        type: "cabinet",
+        name: "Focused 4x12 Cabinet",
+        enabled: true,
+        parameters: { micDistance: 0.32, room: 0.12 }
+      },
+      {
+        id: "modulation",
+        type: "modulation",
+        name: "Light Modulation",
+        enabled: true,
+        parameters: { rate: 0.25, depth: 0.16, mix: 0.1 }
+      },
+      {
+        id: "delay",
+        type: "delay",
+        name: "Rhythmic Lead Delay",
+        enabled: true,
+        parameters: { timeMs: 360, feedback: 0.28, mix: 0.23 }
+      },
+      {
+        id: "reverb",
+        type: "reverb",
+        name: "Roomy Plate",
+        enabled: true,
+        parameters: { decay: 0.5, mix: 0.17 }
+      }
+    ],
+    backendRequirements: {
+      preferredBackends: ["vst3", "external-daw", "sfz", "soundfont"],
+      requiredCapabilities: ["pitch-bend", "automation"]
+    },
+    metadata: {
+      guitarCharacter: "strat-articulate-lead",
       presetFamily: "gilmour-inspired"
     }
   }

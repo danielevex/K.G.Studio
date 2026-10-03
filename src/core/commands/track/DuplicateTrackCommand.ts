@@ -175,6 +175,8 @@ export class DuplicateTrackCommand extends KGCommand {
       duplicate = new KGMidiTrack(duplicateName, duplicateId, source.getInstrument(), source.getVolume());
       duplicate.setTransposeSettings(source.getTransposeSettings());
       duplicate.setNoTranspose(source.getNoTranspose());
+      duplicate.setTonePresetId(source.getTonePresetId());
+      duplicate.setToneSignalChain(source.getToneSignalChain());
       if (this.options.includeRegions) {
         duplicate.setRegions(source.getRegions().map(region => cloneMidiRegion(region, duplicateId, trackIndex)));
       }

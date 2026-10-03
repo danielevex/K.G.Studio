@@ -6,6 +6,7 @@ import { FLUIDR3_INSTRUMENT_MAP } from '../../constants/generalMidiConstants';
 import { AUDIO_INTERFACE_CONSTANTS } from '../../constants/coreConstants';
 import { WithDefault } from '../../types/projectTypes';
 import { isPercussionInstrument } from '../instruments/instrumentResolver';
+import type { SignalChainBlock } from '../performance/LivePerformanceTypes';
 
 export type InstrumentType = keyof typeof FLUIDR3_INSTRUMENT_MAP;
 export interface MidiTransposeSettings {
@@ -28,6 +29,14 @@ export class KGMidiTrack extends KGTrack {
   @Expose()
   @WithDefault(false)
   protected noTranspose: boolean = false;
+
+  @Expose()
+  @WithDefault('off')
+  protected tonePresetId: string = 'off';
+
+  @Expose()
+  @WithDefault([])
+  protected toneSignalChain: SignalChainBlock[] = [];
   
   @Expose()
   @Type(() => KGRegion, {
@@ -85,6 +94,26 @@ export class KGMidiTrack extends KGTrack {
 
   public setNoTranspose(noTranspose: boolean): void {
     this.noTranspose = noTranspose;
+  }
+
+  public getTonePresetId(): string {
+    return this.tonePresetId ?? 'off';
+  }
+
+  public setTonePresetId(tonePresetId: string): void {
+    this.tonePresetId = tonePresetId || 'off';
+  }
+
+  public getToneSignalChain(): SignalChainBlock[] {
+    return Array.isArray(this.toneSignalChain)
+      ? this.toneSignalChain.map(block => ({ ...block, parameters: { ...block.parameters } }))
+      : [];
+  }
+
+  public setToneSignalChain(blocks: SignalChainBlock[]): void {
+    this.toneSignalChain = Array.isArray(blocks)
+      ? blocks.map(block => ({ ...block, parameters: { ...block.parameters } }))
+      : [];
   }
 
   // Override getCurrentType to return specific subclass type

@@ -6,6 +6,8 @@ import { KGToneBuffersPool } from './KGToneBuffersPool';
 import { KGToneSamplerFactory } from './KGToneSamplerFactory';
 import { createStereoTrackPanner } from './createStereoTrackPanner';
 import { resolveInstrumentDefinition, resolvePlaybackInstrument } from '../instruments/instrumentResolver';
+import type { SignalChainBlock } from '../performance/LivePerformanceTypes';
+import { ToneEffectChain } from './ToneEffectChain';
 
 // InstrumentType is defined in KGMidiTrack and re-used here
 
@@ -32,6 +34,7 @@ export class KGAudioBus {
   private audioBuffers: Tone.ToneAudioBuffers;
   private instrument: InstrumentType;
   private panner: Tone.Panner;
+  private toneEffectChain: ToneEffectChain;
   
   // Audio properties
   private volume: number;
@@ -73,6 +76,7 @@ export class KGAudioBus {
     this.audioBuffers = audioBuffers;
     this.instrument = instrument;
     this.panner = panner;
+    this.toneEffectChain = new ToneEffectChain();
     this.volume = volume;
     this.pan = pan;
     this.muted = muted;
@@ -110,8 +114,9 @@ export class KGAudioBus {
       
       // Create the audio bus instance
       const panner = createStereoTrackPanner(pan);
-      sampler.connect(panner);
       const audioBus = new KGAudioBus(sampler, audioBuffers, instrument, panner, volume, pan, muted, solo);
+      sampler.connect(audioBus.toneEffectChain.input);
+      audioBus.toneEffectChain.output.connect(panner);
       
       console.log(`KGAudioBus created successfully for ${instrument}`);
       return audioBus;
@@ -474,7 +479,7 @@ export class KGAudioBus {
       this.sampler = sampler;
       this.audioBuffers = audioBuffers;
       this.instrument = newInstrument;
-      this.sampler.connect(this.panner);
+      this.sampler.connect(this.toneEffectChain.input);
       
       // Restore volume settings
       this.updateSamplerVolume();
@@ -485,6 +490,41 @@ export class KGAudioBus {
       console.error(`Failed to change instrument to ${newInstrument}:`, error);
       throw error;
     }
+  }
+
+  // ===== TONE ENGINE =====
+
+  public applyToneSignalChain(blocks: SignalChainBlock[]): void {
+    this.toneEffectChain.apply(blocks);
+  }
+
+  public clearToneSignalChain(): void {
+    this.toneEffectChain.clear();
+  }
+
+  public getToneSignalChain(): SignalChainBlock[] {
+    return this.toneEffectChain.getBlocks();
+  }
+
+  public setToneBlockEnabled(blockId: string, enabled: boolean): void {
+    this.toneEffectChain.setBlockEnabled(blockId, enabled);
+  }
+
+  public setToneBlockParameter(
+    blockId: string,
+    parameterId: string,
+    value: number | string | boolean,
+  ): void {
+    this.toneEffectChain.setBlockParameter(blockId, parameterId, value);
+  }
+
+  public automateToneBlockParameter(
+    blockId: string,
+    parameterId: string,
+    value: number,
+    time?: number,
+  ): boolean {
+    return this.toneEffectChain.automateBlockParameter(blockId, parameterId, value, time);
   }
 
   // ===== AUDIO ROUTING =====
@@ -534,6 +574,7 @@ export class KGAudioBus {
     try {
       this.releaseAll();
       this.sampler.dispose();
+      this.toneEffectChain.dispose();
       this.panner.dispose();
       console.log(`Disposed KGAudioBus for ${this.instrument}`);
     } catch (error) {

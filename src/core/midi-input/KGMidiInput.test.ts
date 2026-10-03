@@ -19,6 +19,10 @@ const { getStateMock, audioInterfaceMock } = vi.hoisted(() => ({
     setLiveMidiExpression: vi.fn(),
     setLiveMidiSustain: vi.fn(),
     releaseAllLiveMidi: vi.fn(),
+    applyTrackToneSignalChain: vi.fn(),
+    setTrackToneBlockEnabled: vi.fn(),
+    setTrackToneBlockParameter: vi.fn(),
+    automateTrackToneBlockParameter: vi.fn(),
   },
 }));
 
@@ -447,6 +451,65 @@ describe('KGMidiInput pitch bend', () => {
     expect(midiInput.getInstrumentBackendDescriptors()).toContainEqual(
       expect.objectContaining({ id: 'external-midi', availability: 'ready' }),
     );
+  });
+
+  it('applies and persists an LP5 tone preset on the selected MIDI track', () => {
+    const track = new KGMidiTrack('Lead', 1);
+    const updateTrack = vi.fn().mockResolvedValue(undefined);
+    getStateMock.mockReturnValue({
+      selectedTrackId: '1',
+      tracks: [track],
+      updateTrack,
+    });
+
+    const midiInput = KGMidiInput.instance() as unknown as {
+      setTonePreset: (presetId: string) => void;
+      getSelectedTonePresetId: () => string;
+      getSelectedToneSignalChain: () => Array<{ id: string; type: string }>;
+    };
+
+    midiInput.setTonePreset('artist-inspired.gilmour.shine-lead');
+
+    expect(midiInput.getSelectedTonePresetId()).toBe('artist-inspired.gilmour.shine-lead');
+    expect(midiInput.getSelectedToneSignalChain()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'compressor', type: 'compressor' }),
+        expect.objectContaining({ id: 'delay', type: 'delay' }),
+        expect.objectContaining({ id: 'reverb', type: 'reverb' }),
+      ]),
+    );
+    expect(audioInterfaceMock.applyTrackToneSignalChain).toHaveBeenCalledWith(
+      '1',
+      expect.arrayContaining([expect.objectContaining({ id: 'delay' })]),
+    );
+    expect(updateTrack).toHaveBeenCalledWith(track);
+  });
+
+  it('edits tone blocks non-destructively and forwards changes to the internal renderer', () => {
+    const track = new KGMidiTrack('Lead', 1);
+    const updateTrack = vi.fn().mockResolvedValue(undefined);
+    getStateMock.mockReturnValue({
+      selectedTrackId: '1',
+      tracks: [track],
+      updateTrack,
+    });
+
+    const midiInput = KGMidiInput.instance() as unknown as {
+      setTonePreset: (presetId: string) => void;
+      setToneBlockEnabled: (blockId: string, enabled: boolean) => void;
+      setToneBlockParameter: (blockId: string, parameterId: string, value: number) => void;
+      getSelectedToneSignalChain: () => Array<{ id: string; enabled: boolean; parameters: Record<string, unknown> }>;
+    };
+
+    midiInput.setTonePreset('artist-inspired.gilmour.comfort-lead');
+    midiInput.setToneBlockEnabled('fuzz', false);
+    midiInput.setToneBlockParameter('delay', 'mix', 0.42);
+
+    const chain = midiInput.getSelectedToneSignalChain();
+    expect(chain.find(block => block.id === 'fuzz')?.enabled).toBe(false);
+    expect(chain.find(block => block.id === 'delay')?.parameters.mix).toBe(0.42);
+    expect(audioInterfaceMock.setTrackToneBlockEnabled).toHaveBeenCalledWith('1', 'fuzz', false);
+    expect(audioInterfaceMock.setTrackToneBlockParameter).toHaveBeenCalledWith('1', 'delay', 'mix', 0.42);
   });
 
 });

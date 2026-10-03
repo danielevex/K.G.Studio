@@ -122,6 +122,86 @@ export const MockMeter = vi.fn().mockImplementation(() => ({
   dispose: vi.fn()
 }));
 
+
+const createMockParam = (value: number) => ({
+  value,
+  setValueAtTime: vi.fn(),
+  linearRampToValueAtTime: vi.fn(),
+  exponentialRampToValueAtTime: vi.fn(),
+});
+
+const createMockEffectNode = () => {
+  const node = {
+    connect: vi.fn(() => node),
+    disconnect: vi.fn(),
+    dispose: vi.fn(),
+  };
+  return node;
+};
+
+export const MockCompressor = vi.fn().mockImplementation((options?: {
+  threshold?: number;
+  ratio?: number;
+  attack?: number;
+  release?: number;
+}) => ({
+  ...createMockEffectNode(),
+  threshold: createMockParam(options?.threshold ?? -24),
+  ratio: createMockParam(options?.ratio ?? 4),
+  attack: createMockParam(options?.attack ?? 0.01),
+  release: createMockParam(options?.release ?? 0.1),
+}));
+
+export const MockDistortion = vi.fn().mockImplementation((amount: number = 0.4) => ({
+  ...createMockEffectNode(),
+  distortion: amount,
+  wet: createMockParam(1),
+}));
+
+export const MockFilter = vi.fn().mockImplementation((frequency: number = 350, type: string = 'lowpass') => ({
+  ...createMockEffectNode(),
+  frequency: createMockParam(frequency),
+  type,
+}));
+
+export const MockEQ3 = vi.fn().mockImplementation((low: number = 0, mid: number = 0, high: number = 0) => ({
+  ...createMockEffectNode(),
+  low: createMockParam(low),
+  mid: createMockParam(mid),
+  high: createMockParam(high),
+}));
+
+export const MockChorus = vi.fn().mockImplementation((options?: {
+  frequency?: number;
+  delayTime?: number;
+  depth?: number;
+  wet?: number;
+}) => {
+  const node = {
+    ...createMockEffectNode(),
+    frequency: createMockParam(options?.frequency ?? 1.5),
+    delayTime: options?.delayTime ?? 3.5,
+    depth: options?.depth ?? 0.7,
+    wet: createMockParam(options?.wet ?? 0.5),
+    start: vi.fn(),
+  };
+  node.start.mockReturnValue(node);
+  return node;
+});
+
+export const MockFeedbackDelay = vi.fn().mockImplementation((delayTime: number = 0.25, feedback: number = 0.125) => ({
+  ...createMockEffectNode(),
+  delayTime: createMockParam(delayTime),
+  feedback: createMockParam(feedback),
+  wet: createMockParam(1),
+}));
+
+export const MockReverb = vi.fn().mockImplementation((decay: number = 1.5) => ({
+  ...createMockEffectNode(),
+  decay,
+  wet: createMockParam(1),
+}));
+
 // Complete Tone.js mock
 export const ToneMock = {
   Sampler: MockSampler,
@@ -134,6 +214,13 @@ export const ToneMock = {
   Gain: MockGain,
   Panner: MockPanner,
   Meter: MockMeter,
+  Compressor: MockCompressor,
+  Distortion: MockDistortion,
+  Filter: MockFilter,
+  EQ3: MockEQ3,
+  Chorus: MockChorus,
+  FeedbackDelay: MockFeedbackDelay,
+  Reverb: MockReverb,
   
   // Context management
   start: vi.fn().mockResolvedValue(undefined),
