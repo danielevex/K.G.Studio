@@ -2,7 +2,7 @@ import * as Tone from 'tone';
 import type { SignalChainBlock } from '../performance/LivePerformanceTypes';
 
 type AudioNodeLike = {
-  connect: (destination: unknown) => unknown;
+  connect: (destination: any) => any;
   disconnect: () => unknown;
   dispose: () => unknown;
 };
