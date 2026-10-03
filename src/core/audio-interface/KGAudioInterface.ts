@@ -1051,6 +1051,16 @@ export class KGAudioInterface {
     }
   }
 
+  public releaseAllLiveMidi(trackId: string): void {
+    try {
+      const audioBus = this.trackAudioBuses.get(trackId);
+      if (!audioBus) return;
+      audioBus.releaseAll();
+    } catch (error) {
+      console.error(`Error releasing all live MIDI for track ${trackId}:`, error);
+    }
+  }
+
   public setLiveMidiPitchBend(trackId: string, normalizedBend: number): void {
     try {
       const audioBus = this.trackAudioBuses.get(trackId);
@@ -1063,6 +1073,39 @@ export class KGAudioInterface {
       console.log(`Set live MIDI pitch bend to ${normalizedBend} on track ${trackId}`);
     } catch (error) {
       console.error(`Error setting live MIDI pitch bend for track ${trackId}:`, error);
+    }
+  }
+
+  public setLiveMidiPitchBendRange(trackId: string, semitones: number): void {
+    try {
+      const audioBus = this.trackAudioBuses.get(trackId);
+      if (!audioBus) {
+        console.warn(`No audio bus found for track ${trackId}`);
+        return;
+      }
+
+      audioBus.setLiveMidiPitchBendRange(semitones);
+    } catch (error) {
+      console.error(`Error setting live MIDI bend range for track ${trackId}:`, error);
+    }
+  }
+
+  public setLiveMidiVibrato(
+    trackId: string,
+    normalizedDepth: number,
+    maxSemitones: number = 0.35,
+    rateHz: number = 5.5,
+  ): void {
+    try {
+      const audioBus = this.trackAudioBuses.get(trackId);
+      if (!audioBus) {
+        console.warn(`No audio bus found for track ${trackId}`);
+        return;
+      }
+
+      audioBus.setLiveMidiVibrato(normalizedDepth, maxSemitones, rateHz);
+    } catch (error) {
+      console.error(`Error setting live MIDI vibrato for track ${trackId}:`, error);
     }
   }
 

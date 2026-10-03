@@ -1,7 +1,15 @@
 import { KGAudioInterface } from '../audio-interface/KGAudioInterface';
 import { useProjectStore } from '../../stores/projectStore';
 import { KGMidiTrack } from '../track/KGMidiTrack';
-import type { LiveMidiMessage } from '../performance/LivePerformanceTypes';
+import { ConfigManager } from '../config/ConfigManager';
+import { GuitarPerformanceEngine } from '../performance/GuitarPerformanceEngine';
+import { GUITAR_PERFORMANCE_PROFILES, getGuitarPerformanceProfile } from '../performance/GuitarPerformanceProfiles';
+import type {
+  GuitarPerformanceSnapshot,
+  LiveMidiMessage,
+  PerformanceEvent,
+  PerformanceProfile,
+} from '../performance/LivePerformanceTypes';
 
 export interface LiveMidiNoteActivityEvent {
   pitch: number;
@@ -10,6 +18,7 @@ export interface LiveMidiNoteActivityEvent {
 
 type LiveNoteActivityListener = (...args: [LiveMidiNoteActivityEvent]) => void;
 type LiveMidiMessageListener = (...args: [LiveMidiMessage]) => void;
+type PerformanceEventListener = (...args: [PerformanceEvent]) => void;
 type MidiStateListener = () => void;
 
 export interface MidiInputDescriptor {
@@ -54,10 +63,14 @@ export class KGMidiInput {
   private stateVersion = 0;
   private stateListeners: Set<MidiStateListener> = new Set();
   private liveMidiMessageListeners: Set<LiveMidiMessageListener> = new Set();
+  private performanceEventListeners: Set<PerformanceEventListener> = new Set();
   private midiLearnListener: ((result: MidiLearnResult) => void) | null = null;
   private midiLearnArmed = false;
   private retrospectiveBuffer: LiveMidiMessage[] = [];
   private retrospectiveDurationSeconds = 30;
+  private performanceProfileId: string = 'off';
+  private guitarPerformanceEngine: GuitarPerformanceEngine | null = null;
+  private guitarPerformanceTrackId: string | null = null;
 
   // Recording callbacks
   private onRecordNoteOn: ((pitch: number, velocity: number) => void) | null = null;
@@ -96,6 +109,7 @@ export class KGMidiInput {
     try {
       console.log("KGMidiInput ready for MIDI access request");
       this.isInitialized = true;
+      this.loadPerformanceConfiguration();
     } catch (error) {
       console.error("Failed to initialize MIDI input manager:", error);
       throw error;
@@ -258,9 +272,16 @@ export class KGMidiInput {
       this.emitLiveMidiMessage(message);
       this.resolveMidiLearn(message);
       console.log(`MIDI Note On: pitch=${data1}, velocity=${data2}, channel=${channel}`);
-      this.emitLiveNoteActivity({ pitch: data1, isNoteOn: true });
-      this.triggerNoteOn(data1, data2);
-      this.onRecordNoteOn?.(data1, data2);
+      const isKeyswitch = this.guitarPerformanceEngine?.isKeyswitchNote(data1) ?? false;
+      if (!isKeyswitch) {
+        this.emitLiveNoteActivity({ pitch: data1, isNoteOn: true });
+      }
+      if (!this.routeGuitarPerformanceMessage(message)) {
+        this.triggerNoteOn(data1, data2);
+      }
+      if (!isKeyswitch) {
+        this.onRecordNoteOn?.(data1, data2);
+      }
     }
     // Note Off: command = 0x80 (128) or Note On with velocity 0
     else if (command === 0x80 || (command === 0x90 && data2 === 0)) {
@@ -274,9 +295,16 @@ export class KGMidiInput {
       };
       this.emitLiveMidiMessage(message);
       console.log(`MIDI Note Off: pitch=${data1}, channel=${channel}`);
-      this.emitLiveNoteActivity({ pitch: data1, isNoteOn: false });
-      this.triggerNoteOff(data1);
-      this.onRecordNoteOff?.(data1);
+      const isKeyswitch = this.guitarPerformanceEngine?.isKeyswitchNote(data1) ?? false;
+      if (!isKeyswitch) {
+        this.emitLiveNoteActivity({ pitch: data1, isNoteOn: false });
+      }
+      if (!this.routeGuitarPerformanceMessage(message)) {
+        this.triggerNoteOff(data1);
+      }
+      if (!isKeyswitch) {
+        this.onRecordNoteOff?.(data1);
+      }
     }
     // Polyphonic Key Pressure: command = 0xA0 (160)
     else if (command === 0xa0) {
@@ -289,6 +317,7 @@ export class KGMidiInput {
       };
       this.emitLiveMidiMessage(message);
       this.resolveMidiLearn(message);
+      this.routeGuitarPerformanceMessage(message);
       this.onRecordPressure?.('poly', data1, data2);
     }
     // Control Change: command = 0xB0 (176)
@@ -303,7 +332,7 @@ export class KGMidiInput {
       this.emitLiveMidiMessage(message);
       this.resolveMidiLearn(message);
       console.log(`MIDI Control Change: controller=${data1}, value=${data2}, channel=${channel}`);
-      this.handleControlChange(data1, data2);
+      this.handleControlChange(message);
     }
     // Program Change: command = 0xC0 (192)
     else if (command === 0xc0) {
@@ -324,6 +353,7 @@ export class KGMidiInput {
       };
       this.emitLiveMidiMessage(message);
       this.resolveMidiLearn(message);
+      this.routeGuitarPerformanceMessage(message);
       this.onRecordPressure?.('channel', null, data1);
     }
     // Pitch Bend: command = 0xE0 (224)
@@ -339,7 +369,9 @@ export class KGMidiInput {
       this.emitLiveMidiMessage(message);
       this.resolveMidiLearn(message);
       console.log(`MIDI Pitch Bend: value=${pitchBendValue}, channel=${channel}`);
-      this.triggerPitchBend(normalizedValue);
+      if (!this.routeGuitarPerformanceMessage(message)) {
+        this.triggerPitchBend(normalizedValue);
+      }
       this.onRecordPitchBend?.(pitchBendValue);
     }
   }
@@ -448,9 +480,7 @@ export class KGMidiInput {
 
         // Trigger note attack if audio context is ready
         if (audioInterface.getIsAudioContextStarted()) {
-          const latchedTracks = this.liveNoteTrackOwnership.get(pitch) ?? [];
-          latchedTracks.push(selectedTrackId);
-          this.liveNoteTrackOwnership.set(pitch, latchedTracks);
+          this.latchTrackIdForPitch(pitch, selectedTrackId);
           audioInterface.triggerLiveMidiNoteAttack(selectedTrackId, pitch, velocity);
           console.log(`MIDI triggered note attack: pitch=${pitch}, velocity=${velocity}, track=${selectedTrackId}`);
         }
@@ -502,7 +532,30 @@ export class KGMidiInput {
     return Math.max(-1, Math.min(1, normalizedBend));
   }
 
-  private handleControlChange(controller: number, value: number): void {
+  private handleControlChange(message: LiveMidiMessage): void {
+    const controller = message.controller;
+    if (controller === undefined) {
+      return;
+    }
+
+    let effectiveMessage = message;
+    if (controller === KGMidiInput.CONTROL_CHANGE_SUSTAIN) {
+      const isPressed = this.normalizeSustainPedalValue(message.value ?? 0);
+      const normalizedValue = isPressed ? 1 : 0;
+      effectiveMessage = {
+        ...message,
+        value: isPressed ? 127 : 0,
+        normalizedValue,
+      };
+      this.onRecordControlChange?.(controller, isPressed ? 127 : 0);
+    } else {
+      this.onRecordControlChange?.(controller, message.value ?? 0);
+    }
+
+    if (this.routeGuitarPerformanceMessage(effectiveMessage)) {
+      return;
+    }
+
     const selectedTrackId = this.getSelectedMidiTrackId();
     if (!selectedTrackId) {
       return;
@@ -514,16 +567,9 @@ export class KGMidiInput {
     }
 
     if (controller === KGMidiInput.CONTROL_CHANGE_SUSTAIN) {
-      const isPressed = this.normalizeSustainPedalValue(value);
-      this.onRecordControlChange?.(controller, isPressed ? 127 : 0);
-      audioInterface.setLiveMidiSustain(
-        selectedTrackId,
-        isPressed
-      );
+      audioInterface.setLiveMidiSustain(selectedTrackId, (effectiveMessage.normalizedValue ?? 0) >= 0.5);
       return;
     }
-
-    this.onRecordControlChange?.(controller, value);
 
     if (
       controller === KGMidiInput.CONTROL_CHANGE_MODULATION ||
@@ -531,8 +577,169 @@ export class KGMidiInput {
       controller === KGMidiInput.CONTROL_CHANGE_CHANNEL_VOLUME ||
       controller === KGMidiInput.CONTROL_CHANGE_EXPRESSION
     ) {
-      audioInterface.setLiveMidiExpression(selectedTrackId, value / 127);
+      audioInterface.setLiveMidiExpression(selectedTrackId, (message.value ?? 0) / 127);
     }
+  }
+
+  private loadPerformanceConfiguration(): void {
+    const config = ConfigManager.instance();
+    if (!config.getIsInitialized()) {
+      return;
+    }
+
+    const profileId = (config.get('performance.profile_id') as string | undefined) ?? 'off';
+    const bendRange = Number(config.get('performance.guitar_bend_range_semitones') ?? 2);
+    const smoothingMs = Number(config.get('performance.guitar_vibrato_smoothing_ms') ?? 45);
+    this.applyPerformanceProfile(profileId, {
+      bendRangeSemitones: bendRange,
+      vibratoSmoothingMs: smoothingMs,
+    });
+  }
+
+  private routeGuitarPerformanceMessage(message: LiveMidiMessage): boolean {
+    const engine = this.guitarPerformanceEngine;
+    if (!engine) {
+      return false;
+    }
+
+    const events = engine.process(message);
+    this.emitPerformanceEvents(events);
+    this.routePerformanceEvents(events);
+
+    const snapshot = engine.getSnapshot();
+    if (snapshot.activeNote === null && snapshot.heldNotes.length === 0 && !snapshot.sustain) {
+      if (this.guitarPerformanceTrackId) {
+        KGAudioInterface.instance().setLiveMidiVibrato(this.guitarPerformanceTrackId, 0);
+      }
+      this.guitarPerformanceTrackId = null;
+    }
+
+    return true;
+  }
+
+  private emitPerformanceEvents(events: PerformanceEvent[]): void {
+    for (const event of events) {
+      for (const listener of this.performanceEventListeners) {
+        try {
+          listener(event);
+        } catch {
+          // Adapter/monitor listeners must never interrupt low-latency MIDI routing.
+        }
+      }
+    }
+  }
+
+  private routePerformanceEvents(events: PerformanceEvent[]): void {
+    if (events.length === 0) {
+      return;
+    }
+
+    const audioInterface = KGAudioInterface.instance();
+    const settings = this.guitarPerformanceEngine?.getSettings();
+    const selectedTrackId = this.guitarPerformanceTrackId ?? this.getSelectedMidiTrackId();
+
+    if (!selectedTrackId) {
+      return;
+    }
+
+    if (!audioInterface.getIsInitialized()) {
+      return;
+    }
+
+    if (!audioInterface.getIsAudioContextStarted()) {
+      audioInterface.startAudioContext().catch(() => {
+        // Browser gesture policy can still reject the first live event.
+      });
+      if (!audioInterface.getIsAudioContextStarted()) {
+        return;
+      }
+    }
+
+    if (settings) {
+      audioInterface.setLiveMidiPitchBendRange(selectedTrackId, settings.bendRangeSemitones);
+    }
+
+    for (const event of events) {
+      if (event.kind === 'note-start' && event.note !== undefined) {
+        const trackId = this.guitarPerformanceTrackId ?? selectedTrackId;
+        this.guitarPerformanceTrackId = trackId;
+        this.latchTrackIdForPitch(event.note, trackId);
+        audioInterface.triggerLiveMidiNoteAttack(trackId, event.note, event.velocity ?? 127);
+        const snapshot = this.guitarPerformanceEngine?.getSnapshot();
+        if (settings && snapshot && snapshot.vibrato > 0) {
+          audioInterface.setLiveMidiVibrato(
+            trackId,
+            snapshot.vibrato,
+            settings.vibratoMaxSemitones ?? 0.35,
+            settings.vibratoRateHz ?? 5.5,
+          );
+        }
+        continue;
+      }
+
+      if (event.kind === 'note-end' && event.note !== undefined) {
+        const trackId = this.consumeLatchedTrackIdForPitch(event.note)
+          ?? this.guitarPerformanceTrackId
+          ?? selectedTrackId;
+        audioInterface.releaseLiveMidiNote(trackId, event.note);
+        continue;
+      }
+
+      const trackId = this.guitarPerformanceTrackId ?? selectedTrackId;
+      if (event.kind === 'bend') {
+        audioInterface.setLiveMidiPitchBend(trackId, event.normalizedValue ?? 0);
+      } else if (event.kind === 'vibrato' && settings) {
+        audioInterface.setLiveMidiVibrato(
+          trackId,
+          event.normalizedValue ?? event.value ?? 0,
+          settings.vibratoMaxSemitones ?? 0.35,
+          settings.vibratoRateHz ?? 5.5,
+        );
+      } else if (event.kind === 'expression') {
+        audioInterface.setLiveMidiExpression(trackId, event.normalizedValue ?? event.value ?? 1);
+      } else if (event.kind === 'sustain') {
+        audioInterface.setLiveMidiSustain(trackId, (event.value ?? 0) >= 0.5);
+      }
+      // Articulation events intentionally remain semantic in LP3.
+      // LP4 adapters decide how they map to keyswitches, CCs or backend APIs.
+    }
+  }
+
+  private latchTrackIdForPitch(pitch: number, trackId: string): void {
+    const latchedTracks = this.liveNoteTrackOwnership.get(pitch) ?? [];
+    latchedTracks.push(trackId);
+    this.liveNoteTrackOwnership.set(pitch, latchedTracks);
+  }
+
+  private applyPerformanceProfile(
+    profileId: string,
+    settingsOverride: { bendRangeSemitones?: number; vibratoSmoothingMs?: number } = {},
+  ): void {
+    const existingTrackId = this.guitarPerformanceTrackId;
+    if (existingTrackId) {
+      KGAudioInterface.instance().releaseAllLiveMidi(existingTrackId);
+    }
+
+    this.liveNoteTrackOwnership.clear();
+    this.guitarPerformanceTrackId = null;
+    this.performanceProfileId = profileId;
+
+    if (profileId === 'off') {
+      this.guitarPerformanceEngine = null;
+      this.notifyStateChange();
+      return;
+    }
+
+    const profile = getGuitarPerformanceProfile(profileId);
+    if (!profile) {
+      this.performanceProfileId = 'off';
+      this.guitarPerformanceEngine = null;
+      this.notifyStateChange();
+      return;
+    }
+
+    this.guitarPerformanceEngine = new GuitarPerformanceEngine(profile, settingsOverride);
+    this.notifyStateChange();
   }
 
   private getSelectedMidiTrackId(): string | null {
@@ -611,12 +818,20 @@ export class KGMidiInput {
       this.sustainPolarityInverted = null;
       this.liveNoteActivityListeners = [];
       this.liveMidiMessageListeners.clear();
+      this.performanceEventListeners.clear();
       this.stateListeners.clear();
       this.selectedInputId = null;
       this.channelFilter = null;
       this.midiLearnListener = null;
       this.midiLearnArmed = false;
       this.retrospectiveBuffer = [];
+      if (this.guitarPerformanceTrackId) {
+        KGAudioInterface.instance().releaseAllLiveMidi(this.guitarPerformanceTrackId);
+      }
+      this.guitarPerformanceEngine?.reset();
+      this.guitarPerformanceEngine = null;
+      this.performanceProfileId = 'off';
+      this.guitarPerformanceTrackId = null;
       this.notifyStateChange();
 
       console.log("MIDI resources disposed successfully");
@@ -655,6 +870,14 @@ export class KGMidiInput {
 
   public removeLiveMidiMessageListener(listener: LiveMidiMessageListener): void {
     this.liveMidiMessageListeners.delete(listener);
+  }
+
+  public addPerformanceEventListener(listener: PerformanceEventListener): void {
+    this.performanceEventListeners.add(listener);
+  }
+
+  public removePerformanceEventListener(listener: PerformanceEventListener): void {
+    this.performanceEventListeners.delete(listener);
   }
 
   public subscribeState(listener: MidiStateListener): () => void {
@@ -732,6 +955,68 @@ export class KGMidiInput {
     return this.midiLearnArmed;
   }
 
+  public getPerformanceProfileId(): string {
+    return this.performanceProfileId;
+  }
+
+  public getPerformanceProfiles(): PerformanceProfile[] {
+    return GUITAR_PERFORMANCE_PROFILES.map(profile => ({
+      ...profile,
+      mappings: profile.mappings.map(mapping => ({ ...mapping })),
+      articulations: profile.articulations.map(articulation => ({ ...articulation })),
+      guitar: profile.guitar ? { ...profile.guitar } : undefined,
+    }));
+  }
+
+  public getGuitarPerformanceSnapshot(): GuitarPerformanceSnapshot | null {
+    return this.guitarPerformanceEngine?.getSnapshot() ?? null;
+  }
+
+  public getGuitarPerformanceSettings() {
+    return this.guitarPerformanceEngine?.getSettings() ?? null;
+  }
+
+  public setPerformanceProfile(profileId: string): void {
+    const config = ConfigManager.instance();
+    this.applyPerformanceProfile(profileId);
+
+    if (config.getIsInitialized()) {
+      const settings = this.guitarPerformanceEngine?.getSettings();
+      void config.set('performance.profile_id', this.performanceProfileId);
+      if (settings) {
+        void config.set('performance.guitar_bend_range_semitones', settings.bendRangeSemitones);
+        void config.set('performance.guitar_vibrato_smoothing_ms', settings.vibratoSmoothingMs);
+      }
+    }
+  }
+
+  public setGuitarBendRangeSemitones(semitones: number): void {
+    const value = Math.max(1, Math.min(12, Math.round(semitones)));
+    this.guitarPerformanceEngine?.setSettings({ bendRangeSemitones: value });
+
+    const trackId = this.guitarPerformanceTrackId ?? this.getSelectedMidiTrackId();
+    if (trackId) {
+      KGAudioInterface.instance().setLiveMidiPitchBendRange(trackId, value);
+    }
+
+    const config = ConfigManager.instance();
+    if (config.getIsInitialized()) {
+      void config.set('performance.guitar_bend_range_semitones', value);
+    }
+    this.notifyStateChange();
+  }
+
+  public setGuitarVibratoSmoothingMs(smoothingMs: number): void {
+    const value = Math.max(0, Math.min(500, Math.round(smoothingMs)));
+    this.guitarPerformanceEngine?.setSettings({ vibratoSmoothingMs: value });
+
+    const config = ConfigManager.instance();
+    if (config.getIsInitialized()) {
+      void config.set('performance.guitar_vibrato_smoothing_ms', value);
+    }
+    this.notifyStateChange();
+  }
+
   public setRetrospectiveDurationSeconds(durationSeconds: number): void {
     this.retrospectiveDurationSeconds = Math.max(1, Math.min(120, Math.round(durationSeconds)));
     const latestTimestamp = this.retrospectiveBuffer[this.retrospectiveBuffer.length - 1]?.timestampMs;
@@ -755,6 +1040,16 @@ export class KGMidiInput {
     const cutoff = latestTimestamp - (safeDuration * 1000);
     return this.retrospectiveBuffer
       .filter(message => message.timestampMs >= cutoff)
+      .filter(message => {
+        if (
+          (message.kind === 'note-on' || message.kind === 'note-off')
+          && message.note !== undefined
+          && this.guitarPerformanceEngine?.isKeyswitchNote(message.note)
+        ) {
+          return false;
+        }
+        return true;
+      })
       .map(message => ({ ...message }));
   }
 
