@@ -33,6 +33,7 @@ import {
   type AudioRecordingStartResult,
 } from './KGAudioRecorder';
 import { KGMidiTrack, type InstrumentType } from '../track/KGMidiTrack';
+import type { SignalChainBlock } from '../performance/LivePerformanceTypes';
 import type { KGAudioRegion } from '../region/KGAudioRegion';
 import { KGCore } from '../KGCore';
 import { ConfigManager } from '../config/ConfigManager';
@@ -255,6 +256,9 @@ export class KGAudioInterface {
       const initialMuted = track ? track.getMuted() : false;
       const initialSolo = track ? track.getSolo() : false;
       const audioBus = await KGAudioBus.create(instrumentType, initialVolume, 0, initialMuted, initialSolo);
+      if (track instanceof KGMidiTrack) {
+        audioBus.applyToneSignalChain(track.getToneSignalChain());
+      }
       
       // Connect to master gain if available, otherwise to destination
       if (this.masterGain) {
@@ -1059,6 +1063,47 @@ export class KGAudioInterface {
     } catch (error) {
       console.error(`Error releasing all live MIDI for track ${trackId}:`, error);
     }
+  }
+
+  public applyTrackToneSignalChain(trackId: string, blocks: SignalChainBlock[]): void {
+    const audioBus = this.trackAudioBuses.get(trackId);
+    if (!audioBus) {
+      console.warn(`No audio bus found for track ${trackId}`);
+      return;
+    }
+    audioBus.applyToneSignalChain(blocks);
+  }
+
+  public getTrackToneSignalChain(trackId: string): SignalChainBlock[] {
+    return this.trackAudioBuses.get(trackId)?.getToneSignalChain() ?? [];
+  }
+
+  public setTrackToneBlockEnabled(trackId: string, blockId: string, enabled: boolean): void {
+    this.trackAudioBuses.get(trackId)?.setToneBlockEnabled(blockId, enabled);
+  }
+
+  public setTrackToneBlockParameter(
+    trackId: string,
+    blockId: string,
+    parameterId: string,
+    value: number | string | boolean,
+  ): void {
+    this.trackAudioBuses.get(trackId)?.setToneBlockParameter(blockId, parameterId, value);
+  }
+
+  public automateTrackToneBlockParameter(
+    trackId: string,
+    blockId: string,
+    parameterId: string,
+    value: number,
+    time?: number,
+  ): boolean {
+    return this.trackAudioBuses.get(trackId)?.automateToneBlockParameter(
+      blockId,
+      parameterId,
+      value,
+      time,
+    ) ?? false;
   }
 
   public setLiveMidiPitchBend(trackId: string, normalizedBend: number): void {
