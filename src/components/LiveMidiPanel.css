@@ -277,3 +277,39 @@
   text-transform: uppercase;
   white-space: nowrap;
 }
+
+
+.live-midi-backend-config {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #343c45;
+  border-radius: 7px;
+  background: #14191e;
+}
+
+.live-midi-backend-health {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px;
+  border-radius: 6px;
+  background: #392e1d;
+  color: #e7c17c;
+}
+
+.live-midi-backend-health.ready {
+  background: #1f3527;
+  color: #9fe0ae;
+}
+
+.live-midi-backend-health strong {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.live-midi-backend-health small {
+  color: inherit;
+  opacity: 0.78;
+  line-height: 1.3;
+}

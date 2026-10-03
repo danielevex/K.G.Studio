@@ -36,6 +36,7 @@ export type PerformanceEventKind =
   | "vibrato"
   | "expression"
   | "sustain"
+  | "pressure"
   | "articulation"
   | "parameter";
 
@@ -60,6 +61,7 @@ export interface PerformanceEvent {
   bendSemitones?: number;
   transition?: GuitarTransition;
   retrigger?: boolean;
+  pressureKind?: "channel" | "poly";
   sourceMessage?: LiveMidiMessage;
 }
 
@@ -171,6 +173,10 @@ export interface InstrumentAdapterDescriptor {
   supportsArticulations: boolean;
   supportsParameterAutomation: boolean;
   supportsStatePersistence: boolean;
+  supportsTrueLegato?: boolean;
+  supportsSemanticTransitions?: boolean;
+  availability?: "ready" | "needs-configuration" | "unavailable";
+  latencyMode?: "in-process" | "external-midi" | "plugin-host";
   metadata?: Record<string, string>;
 }
 

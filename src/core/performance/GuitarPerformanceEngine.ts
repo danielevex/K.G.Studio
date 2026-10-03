@@ -139,9 +139,24 @@ export class GuitarPerformanceEngine {
     }
 
     if (message.kind === 'channel-pressure' || message.kind === 'poly-aftertouch') {
+      const pressureEvent: PerformanceEvent = {
+        kind: 'pressure',
+        timestampMs: message.timestampMs,
+        channel: message.channel,
+        note: message.kind === 'poly-aftertouch' ? message.note : undefined,
+        value: message.value ?? 0,
+        normalizedValue: normalizedControllerValue(message),
+        pressureKind: message.kind === 'channel-pressure' ? 'channel' : 'poly',
+        sourceMessage: message,
+      };
+
       if (this.mappingTargetsVibrato(message.kind === 'channel-pressure' ? 'channel-aftertouch' : 'poly-aftertouch')) {
-        return [this.buildVibratoEvent(message, normalizedControllerValue(message))];
+        return [
+          this.buildVibratoEvent(message, normalizedControllerValue(message)),
+          pressureEvent,
+        ];
       }
+      return [pressureEvent];
     }
 
     return [];

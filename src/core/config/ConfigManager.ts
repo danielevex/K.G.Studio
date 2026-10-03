@@ -107,6 +107,9 @@ interface AppConfig {
     profile_id: string;
     guitar_bend_range_semitones: number;
     guitar_vibrato_smoothing_ms: number;
+    instrument_backend_id: string;
+    external_midi_output_id: string;
+    external_midi_channel: number;
   };
   templates: {
     custom_instructions: string;
@@ -312,7 +315,10 @@ export class ConfigManager {
         performance: {
           profile_id: 'off',
           guitar_bend_range_semitones: 2,
-          guitar_vibrato_smoothing_ms: 45
+          guitar_vibrato_smoothing_ms: 45,
+          instrument_backend_id: 'internal-sampler',
+          external_midi_output_id: '',
+          external_midi_channel: 0
         },
         templates: {
           custom_instructions: ''

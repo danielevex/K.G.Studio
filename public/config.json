@@ -104,6 +104,9 @@
     "performance": {
         "profile_id": "off",
         "guitar_bend_range_semitones": 2,
-        "guitar_vibrato_smoothing_ms": 45
+        "guitar_vibrato_smoothing_ms": 45,
+        "instrument_backend_id": "internal-sampler",
+        "external_midi_output_id": "",
+        "external_midi_channel": 0
     }
 }
