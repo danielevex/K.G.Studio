@@ -370,4 +370,83 @@ describe('KGMidiInput pitch bend', () => {
     }));
   });
 
+  it('routes LP3 performance to the selected external MIDI backend without double-monitoring internally', () => {
+    const send = vi.fn();
+    const output = {
+      id: 'guitar-out',
+      name: 'K.G.Studio Guitar Out',
+      manufacturer: 'test',
+      state: 'connected',
+      send,
+    } as unknown as MIDIOutput;
+
+    const midiInput = KGMidiInput.instance() as unknown as {
+      midiAccess: MIDIAccess | null;
+      handleMIDIMessage: (...args: [TestMidiEvent, string?]) => void;
+      applyPerformanceProfile: (profileId: string) => void;
+      selectOutput: (outputId: string | null) => void;
+      setInstrumentBackend: (backendId: string) => void;
+      getExternalMidiReady: () => boolean;
+      setRecordingCallbacks: (
+        onNoteOn: (pitch: number, velocity: number) => void,
+        onNoteOff: null,
+      ) => void;
+    };
+
+    midiInput.midiAccess = {
+      outputs: new Map([['guitar-out', output]]),
+      inputs: new Map(),
+    } as unknown as MIDIAccess;
+
+    const recordedNoteOn = vi.fn();
+    midiInput.setRecordingCallbacks(recordedNoteOn, null);
+    midiInput.selectOutput('guitar-out');
+    midiInput.setInstrumentBackend('external-midi');
+    midiInput.applyPerformanceProfile('guitar.lead.standard');
+    send.mockClear();
+    vi.clearAllMocks();
+
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x90, 60, 100]) }, 'keyboard-a');
+    midiInput.handleMIDIMessage({ data: new Uint8Array([0x90, 62, 90]) }, 'keyboard-a');
+
+    expect(midiInput.getExternalMidiReady()).toBe(true);
+    expect(audioInterfaceMock.triggerLiveMidiNoteAttack).not.toHaveBeenCalled();
+    expect(audioInterfaceMock.releaseLiveMidiNote).not.toHaveBeenCalled();
+    expect(recordedNoteOn).toHaveBeenNthCalledWith(1, 60, 100);
+    expect(recordedNoteOn).toHaveBeenNthCalledWith(2, 62, 90);
+
+    const sent = send.mock.calls.map(call => call[0]);
+    expect(sent[0]).toEqual([0x90, 60, 100]);
+    expect(sent[1]).toEqual([0x90, 62, 90]);
+    expect(sent[2]).toEqual([0x80, 60, 0]);
+  });
+
+  it('discovers external MIDI backend availability from connected outputs', () => {
+    const output = {
+      id: 'guitar-out',
+      name: 'Virtual Guitar Out',
+      manufacturer: '',
+      state: 'connected',
+      send: vi.fn(),
+    } as unknown as MIDIOutput;
+
+    const midiInput = KGMidiInput.instance() as unknown as {
+      midiAccess: MIDIAccess | null;
+      getConnectedOutputDescriptors: () => Array<{ id: string; name: string }>;
+      getInstrumentBackendDescriptors: () => Array<{ id: string; availability?: string }>;
+    };
+
+    midiInput.midiAccess = {
+      outputs: new Map([['guitar-out', output]]),
+      inputs: new Map(),
+    } as unknown as MIDIAccess;
+
+    expect(midiInput.getConnectedOutputDescriptors()).toEqual([
+      expect.objectContaining({ id: 'guitar-out', name: 'Virtual Guitar Out' }),
+    ]);
+    expect(midiInput.getInstrumentBackendDescriptors()).toContainEqual(
+      expect.objectContaining({ id: 'external-midi', availability: 'ready' }),
+    );
+  });
+
 });
