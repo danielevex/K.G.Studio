@@ -36,6 +36,7 @@ export type PerformanceEventKind =
   | "vibrato"
   | "expression"
   | "sustain"
+  | "pressure"
   | "articulation"
   | "parameter";
 
@@ -60,6 +61,7 @@ export interface PerformanceEvent {
   bendSemitones?: number;
   transition?: GuitarTransition;
   retrigger?: boolean;
+  pressureKind?: "channel" | "poly";
   sourceMessage?: LiveMidiMessage;
 }
 
