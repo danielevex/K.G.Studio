@@ -171,6 +171,10 @@ export interface InstrumentAdapterDescriptor {
   supportsArticulations: boolean;
   supportsParameterAutomation: boolean;
   supportsStatePersistence: boolean;
+  supportsTrueLegato?: boolean;
+  supportsSemanticTransitions?: boolean;
+  availability?: "ready" | "needs-configuration" | "unavailable";
+  latencyMode?: "in-process" | "external-midi" | "plugin-host";
   metadata?: Record<string, string>;
 }
 
