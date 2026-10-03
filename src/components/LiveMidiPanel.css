@@ -313,3 +313,118 @@
   opacity: 0.78;
   line-height: 1.3;
 }
+
+
+.live-midi-tone {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #343c45;
+  border-radius: 7px;
+  background: #15191d;
+}
+
+.live-midi-tone-health {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px;
+  border-radius: 6px;
+  background: #2b302f;
+  color: #cbd5d0;
+}
+
+.live-midi-tone-health.active {
+  background: #1d3426;
+  color: #a2e3b0;
+}
+
+.live-midi-tone-health.external {
+  background: #352f20;
+  color: #e5c782;
+}
+
+.live-midi-tone-health strong {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.live-midi-tone-health small {
+  color: inherit;
+  opacity: 0.78;
+  line-height: 1.3;
+}
+
+.live-midi-tone-blocks {
+  display: grid;
+  gap: 7px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.live-midi-tone-block {
+  padding: 7px;
+  border: 1px solid #323941;
+  border-radius: 6px;
+  background: #1d2227;
+}
+
+.live-midi-tone-block.bypassed {
+  opacity: 0.55;
+}
+
+.live-midi-tone-block-title {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+}
+
+.live-midi-tone-block-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-midi-tone-block-title small {
+  color: #77828b;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.live-midi-tone-parameters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 7px;
+  margin-top: 7px;
+}
+
+.live-midi-tone-parameters label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 68px;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+}
+
+.live-midi-tone-parameters span {
+  overflow: hidden;
+  color: #9ca7b0;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-midi-tone-parameters input[type='number'],
+.live-midi-tone-parameters select {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  border: 1px solid #3e474f;
+  border-radius: 4px;
+  background: #15191d;
+  color: #dfe5e8;
+  font-size: 10px;
+  padding: 0 4px;
+}
