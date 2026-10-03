@@ -86,6 +86,9 @@ const LiveMidiPanel: React.FC = () => {
   const selectedOutputId = midi.getSelectedOutputId();
   const externalMidiChannel = midi.getExternalMidiChannel();
   const externalMidiReady = midi.getExternalMidiReady();
+  const tonePresets = midi.getTonePresets();
+  const tonePresetId = midi.getSelectedTonePresetId();
+  const toneSignalChain = midi.getSelectedToneSignalChain();
   const hasAccess = midi.getMIDIAccess() !== null;
   const supported = midi.getIsWebMidiSupported();
 
@@ -279,6 +282,99 @@ const LiveMidiPanel: React.FC = () => {
                         ))}
                       </select>
                     </label>
+
+                    <div className="live-midi-tone">
+                      <label className="live-midi-field">
+                        <span>Tone</span>
+                        <select
+                          value={tonePresetId}
+                          onChange={(event) => midi.setTonePreset(event.target.value)}
+                        >
+                          <option value="off">Tone Engine Off</option>
+                          {tonePresets.map((preset) => (
+                            <option key={preset.id} value={preset.id}>{preset.name}</option>
+                          ))}
+                        </select>
+                      </label>
+
+                      {toneSignalChain.length > 0 && (
+                        <>
+                          <div className={`live-midi-tone-health ${instrumentBackendId === 'internal-sampler' ? 'active' : 'external'}`}>
+                            <strong>
+                              {instrumentBackendId === 'internal-sampler'
+                                ? 'INTERNAL TONE ENGINE ACTIVE'
+                                : 'EXTERNAL HOST RECIPE'}
+                            </strong>
+                            <small>
+                              {instrumentBackendId === 'internal-sampler'
+                                ? 'The chain is rendered inside K.G.Studio.'
+                                : 'Preset and edits are saved; matching audio effects must run in the external host until native plugin hosting arrives.'}
+                            </small>
+                          </div>
+
+                          <div className="live-midi-tone-blocks">
+                            {toneSignalChain.map((block) => (
+                              <div key={block.id} className={`live-midi-tone-block ${block.enabled ? '' : 'bypassed'}`}>
+                                <label className="live-midi-tone-block-title">
+                                  <input
+                                    type="checkbox"
+                                    checked={block.enabled}
+                                    onChange={(event) => midi.setToneBlockEnabled(block.id, event.target.checked)}
+                                  />
+                                  <span>{block.name}</span>
+                                  <small>{block.type}</small>
+                                </label>
+
+                                {block.enabled && (
+                                  <div className="live-midi-tone-parameters">
+                                    {Object.entries(block.parameters).map(([parameterId, parameterValue]) => (
+                                      <label key={parameterId}>
+                                        <span>{parameterId}</span>
+                                        {typeof parameterValue === 'number' ? (
+                                          <input
+                                            type="number"
+                                            step={parameterId.toLowerCase().includes('ms') ? 1 : 0.01}
+                                            value={parameterValue}
+                                            onChange={(event) => midi.setToneBlockParameter(
+                                              block.id,
+                                              parameterId,
+                                              Number(event.target.value),
+                                            )}
+                                          />
+                                        ) : typeof parameterValue === 'boolean' ? (
+                                          <input
+                                            type="checkbox"
+                                            checked={parameterValue}
+                                            onChange={(event) => midi.setToneBlockParameter(
+                                              block.id,
+                                              parameterId,
+                                              event.target.checked,
+                                            )}
+                                          />
+                                        ) : (
+                                          <select
+                                            value={String(parameterValue)}
+                                            onChange={(event) => midi.setToneBlockParameter(
+                                              block.id,
+                                              parameterId,
+                                              event.target.value,
+                                            )}
+                                          >
+                                            <option value="fast">fast</option>
+                                            <option value="medium">medium</option>
+                                            <option value="slow">slow</option>
+                                          </select>
+                                        )}
+                                      </label>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
 
                     <div className="live-midi-performance-status">
                       <div>
