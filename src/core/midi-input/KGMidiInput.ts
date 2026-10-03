@@ -4,11 +4,18 @@ import { KGMidiTrack } from '../track/KGMidiTrack';
 import { ConfigManager } from '../config/ConfigManager';
 import { GuitarPerformanceEngine } from '../performance/GuitarPerformanceEngine';
 import { GUITAR_PERFORMANCE_PROFILES, getGuitarPerformanceProfile } from '../performance/GuitarPerformanceProfiles';
+import {
+  DEFAULT_GUITAR_ARTICULATION_MIDI_MAP,
+  ExternalMidiInstrumentAdapter,
+} from '../performance/adapters/ExternalMidiInstrumentAdapter';
+import { getInstrumentBackendDescriptors } from '../performance/adapters/InstrumentAdapterRegistry';
+import type { MidiOutputDescriptor } from '../performance/adapters/InstrumentPerformanceAdapter';
 import type {
   GuitarPerformanceSnapshot,
   LiveMidiMessage,
   PerformanceEvent,
   PerformanceProfile,
+  InstrumentAdapterDescriptor,
 } from '../performance/LivePerformanceTypes';
 
 export interface LiveMidiNoteActivityEvent {
@@ -71,6 +78,15 @@ export class KGMidiInput {
   private performanceProfileId: string = 'off';
   private guitarPerformanceEngine: GuitarPerformanceEngine | null = null;
   private guitarPerformanceTrackId: string | null = null;
+  private instrumentBackendId: 'internal-sampler' | 'external-midi' = 'internal-sampler';
+  private selectedOutputId: string = '';
+  private externalMidiChannel: number = 0;
+  private externalMidiAdapter = new ExternalMidiInstrumentAdapter({
+    output: null,
+    channel: 0,
+    bendRangeSemitones: 2,
+    articulationMap: DEFAULT_GUITAR_ARTICULATION_MIDI_MAP,
+  });
 
   // Recording callbacks
   private onRecordNoteOn: ((pitch: number, velocity: number) => void) | null = null;
@@ -143,8 +159,9 @@ export class KGMidiInput {
       // Set up device listeners
       this.setupDeviceListeners();
 
-      // Connect to all existing inputs
+      // Connect to all existing inputs and resolve any saved external MIDI output.
       this.connectToAllInputs();
+      this.refreshExternalMidiAdapter();
       this.notifyStateChange();
     } catch (error) {
       console.error("Failed to request MIDI access:", error);
@@ -163,7 +180,7 @@ export class KGMidiInput {
     this.midiAccess.onstatechange = (event: MIDIConnectionEvent) => {
       const port = event.port;
 
-      if (port && port.type === "input") {
+      if (port?.type === "input") {
         if (port.state === "connected") {
           console.log(`MIDI device connected: ${port.name}`);
           this.connectToInput(port as MIDIInput);
@@ -171,6 +188,12 @@ export class KGMidiInput {
           console.log(`MIDI device disconnected: ${port.name}`);
           this.disconnectFromInput(port.id);
         }
+      } else if (port?.type === "output") {
+        console.log(`MIDI output ${port.state}: ${port.name}`);
+        this.refreshExternalMidiAdapter();
+      }
+
+      if (port) {
         this.notifyStateChange();
       }
     };
@@ -590,6 +613,21 @@ export class KGMidiInput {
     const profileId = (config.get('performance.profile_id') as string | undefined) ?? 'off';
     const bendRange = Number(config.get('performance.guitar_bend_range_semitones') ?? 2);
     const smoothingMs = Number(config.get('performance.guitar_vibrato_smoothing_ms') ?? 45);
+    const backendId = String(config.get('performance.instrument_backend_id') ?? 'internal-sampler');
+    this.instrumentBackendId = backendId === 'external-midi' ? 'external-midi' : 'internal-sampler';
+    this.selectedOutputId = String(config.get('performance.external_midi_output_id') ?? '');
+    this.externalMidiChannel = Math.max(0, Math.min(
+      15,
+      Math.round(Number(config.get('performance.external_midi_channel') ?? 0)),
+    ));
+
+    this.externalMidiAdapter.configure({
+      output: null,
+      channel: this.externalMidiChannel,
+      bendRangeSemitones: bendRange,
+      articulationMap: DEFAULT_GUITAR_ARTICULATION_MIDI_MAP,
+    });
+
     this.applyPerformanceProfile(profileId, {
       bendRangeSemitones: bendRange,
       vibratoSmoothingMs: smoothingMs,
@@ -604,11 +642,16 @@ export class KGMidiInput {
 
     const events = engine.process(message);
     this.emitPerformanceEvents(events);
-    this.routePerformanceEvents(events);
+
+    if (this.instrumentBackendId === 'external-midi') {
+      this.externalMidiAdapter.handleEvents(events);
+    } else {
+      this.routePerformanceEvents(events);
+    }
 
     const snapshot = engine.getSnapshot();
     if (snapshot.activeNote === null && snapshot.heldNotes.length === 0 && !snapshot.sustain) {
-      if (this.guitarPerformanceTrackId) {
+      if (this.instrumentBackendId === 'internal-sampler' && this.guitarPerformanceTrackId) {
         KGAudioInterface.instance().setLiveMidiVibrato(this.guitarPerformanceTrackId, 0);
       }
       this.guitarPerformanceTrackId = null;
@@ -719,6 +762,7 @@ export class KGMidiInput {
     if (existingTrackId) {
       KGAudioInterface.instance().releaseAllLiveMidi(existingTrackId);
     }
+    this.externalMidiAdapter.panic();
 
     this.liveNoteTrackOwnership.clear();
     this.guitarPerformanceTrackId = null;
@@ -740,6 +784,27 @@ export class KGMidiInput {
 
     this.guitarPerformanceEngine = new GuitarPerformanceEngine(profile, settingsOverride);
     this.notifyStateChange();
+  }
+
+  private refreshExternalMidiAdapter(): void {
+    const output = this.selectedOutputId
+      ? this.midiAccess?.outputs.get(this.selectedOutputId) ?? null
+      : null;
+    const bendRange = this.guitarPerformanceEngine?.getSettings().bendRangeSemitones
+      ?? Number(ConfigManager.instance().get('performance.guitar_bend_range_semitones') ?? 2);
+
+    this.externalMidiAdapter.configure({
+      output,
+      channel: this.externalMidiChannel,
+      bendRangeSemitones: bendRange,
+      articulationMap: DEFAULT_GUITAR_ARTICULATION_MIDI_MAP,
+    });
+
+    if (this.instrumentBackendId === 'external-midi') {
+      this.externalMidiAdapter.activate();
+    } else {
+      this.externalMidiAdapter.deactivate();
+    }
   }
 
   private getSelectedMidiTrackId(): string | null {
@@ -828,9 +893,13 @@ export class KGMidiInput {
       if (this.guitarPerformanceTrackId) {
         KGAudioInterface.instance().releaseAllLiveMidi(this.guitarPerformanceTrackId);
       }
+      this.externalMidiAdapter.deactivate();
       this.guitarPerformanceEngine?.reset();
       this.guitarPerformanceEngine = null;
       this.performanceProfileId = 'off';
+      this.instrumentBackendId = 'internal-sampler';
+      this.selectedOutputId = '';
+      this.externalMidiChannel = 0;
       this.guitarPerformanceTrackId = null;
       this.notifyStateChange();
 
@@ -959,6 +1028,88 @@ export class KGMidiInput {
     return this.performanceProfileId;
   }
 
+  public getInstrumentBackendId(): 'internal-sampler' | 'external-midi' {
+    return this.instrumentBackendId;
+  }
+
+  public getInstrumentBackendDescriptors(): InstrumentAdapterDescriptor[] {
+    return getInstrumentBackendDescriptors(this.midiAccess?.outputs.size ?? 0);
+  }
+
+  public getConnectedOutputDescriptors(): MidiOutputDescriptor[] {
+    if (!this.midiAccess) return [];
+    return Array.from(this.midiAccess.outputs.values()).map(output => ({
+      id: output.id,
+      name: output.name || 'MIDI Output',
+      manufacturer: output.manufacturer || '',
+      state: output.state,
+    }));
+  }
+
+  public getSelectedOutputId(): string {
+    return this.selectedOutputId;
+  }
+
+  public getExternalMidiChannel(): number {
+    return this.externalMidiChannel;
+  }
+
+  public getExternalMidiReady(): boolean {
+    return this.externalMidiAdapter.isReady();
+  }
+
+  public setInstrumentBackend(backendId: string): void {
+    const next = backendId === 'external-midi' ? 'external-midi' : 'internal-sampler';
+    if (next === this.instrumentBackendId) {
+      this.refreshExternalMidiAdapter();
+      return;
+    }
+
+    if (this.guitarPerformanceTrackId) {
+      KGAudioInterface.instance().releaseAllLiveMidi(this.guitarPerformanceTrackId);
+      this.guitarPerformanceTrackId = null;
+    }
+    this.externalMidiAdapter.panic();
+    this.instrumentBackendId = next;
+    this.refreshExternalMidiAdapter();
+
+    const config = ConfigManager.instance();
+    if (config.getIsInitialized()) {
+      void config.set('performance.instrument_backend_id', next);
+    }
+    this.notifyStateChange();
+  }
+
+  public selectOutput(outputId: string | null): void {
+    const nextId = outputId ?? '';
+    if (nextId && this.midiAccess && !this.midiAccess.outputs.has(nextId)) {
+      throw new Error(`Unknown MIDI output: ${nextId}`);
+    }
+
+    this.externalMidiAdapter.panic();
+    this.selectedOutputId = nextId;
+    this.refreshExternalMidiAdapter();
+
+    const config = ConfigManager.instance();
+    if (config.getIsInitialized()) {
+      void config.set('performance.external_midi_output_id', nextId);
+    }
+    this.notifyStateChange();
+  }
+
+  public setExternalMidiChannel(channel: number): void {
+    const next = Math.max(0, Math.min(15, Math.round(channel)));
+    this.externalMidiAdapter.panic();
+    this.externalMidiChannel = next;
+    this.refreshExternalMidiAdapter();
+
+    const config = ConfigManager.instance();
+    if (config.getIsInitialized()) {
+      void config.set('performance.external_midi_channel', next);
+    }
+    this.notifyStateChange();
+  }
+
   public getPerformanceProfiles(): PerformanceProfile[] {
     return GUITAR_PERFORMANCE_PROFILES.map(profile => ({
       ...profile,
@@ -993,6 +1144,7 @@ export class KGMidiInput {
   public setGuitarBendRangeSemitones(semitones: number): void {
     const value = Math.max(1, Math.min(12, Math.round(semitones)));
     this.guitarPerformanceEngine?.setSettings({ bendRangeSemitones: value });
+    this.externalMidiAdapter.configure({ bendRangeSemitones: value });
 
     const trackId = this.guitarPerformanceTrackId ?? this.getSelectedMidiTrackId();
     if (trackId) {
